@@ -1,43 +1,92 @@
 // netlify/functions/list-by-tag.js
 import { v2 as cloudinary } from "cloudinary";
 
-export const handler = async (event) => {
-  const cors = {
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Headers": "Content-Type",
+const CORS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "Content-Type",
+};
+
+function parseBodyOrQS(event) {
+  // Try JSON body
+  try {
+    if (event.body) {
+      const b = JSON.parse(event.body);
+      if (b && (b.tag || b.max_results || b.next_cursor)) return b;
+    }
+  } catch {}
+  // Try query string as a fallback
+  const params = new URLSearchParams(event.queryStringParameters || {});
+  const tag = (params.get("tag") || "").trim();
+  const max_results = params.get("max_results");
+  const next_cursor = params.get("next_cursor");
+  return {
+    tag,
+    max_results: max_results ? Number(max_results) : undefined,
+    next_cursor: next_cursor || undefined,
   };
-  if (event.httpMethod === "OPTIONS") return { statusCode: 200, headers: cors };
+}
 
-  if (event.httpMethod !== "POST") {
-    return { statusCode: 405, headers: cors, body: JSON.stringify({ error: "Method not allowed" }) };
+function normalize(items = []) {
+  return items.map((r) => ({
+    public_id: r.public_id,
+    format: r.format,
+    width: r.width,
+    height: r.height,
+    bytes: r.bytes,
+    created_at: r.created_at,
+    secure_url: r.secure_url,
+  }));
+}
+
+export const handler = async (event) => {
+  if (event.httpMethod === "OPTIONS") {
+    return { statusCode: 200, headers: CORS };
   }
-
-  // ---- Env vars ----
-  const { CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET } = process.env;
-  if (!CLOUDINARY_CLOUD_NAME || !CLOUDINARY_API_KEY || !CLOUDINARY_API_SECRET) {
+  if (event.httpMethod !== "POST" && event.httpMethod !== "GET") {
     return {
-      statusCode: 500,
-      headers: cors,
-      body: JSON.stringify({ error: "Missing Cloudinary env vars (CLOUDINARY_CLOUD_NAME/API_KEY/API_SECRET)" }),
+      statusCode: 405,
+      headers: CORS,
+      body: JSON.stringify({ error: "Method not allowed" }),
     };
   }
 
-  // ---- Parse body ----
-  let body;
-  try {
-    body = JSON.parse(event.body || "{}");
-  } catch {
-    return { statusCode: 400, headers: cors, body: JSON.stringify({ error: "Invalid JSON body" }) };
+  // Env
+  const {
+    CLOUDINARY_CLOUD_NAME,
+    CLOUDINARY_API_KEY,
+    CLOUDINARY_API_SECRET,
+  } = process.env || {};
+  if (!CLOUDINARY_CLOUD_NAME || !CLOUDINARY_API_KEY || !CLOUDINARY_API_SECRET) {
+    return {
+      statusCode: 500,
+      headers: CORS,
+      body: JSON.stringify({
+        error: "Missing Cloudinary env vars",
+        expect: [
+          "CLOUDINARY_CLOUD_NAME",
+          "CLOUDINARY_API_KEY",
+          "CLOUDINARY_API_SECRET",
+        ],
+      }),
+    };
   }
-  const tag = (body.tag || "").trim();
-  const maxResults = Math.min(Number(body.max_results || 100), 500); // cap
-  const nextCursor = body.next_cursor || undefined;
+
+  // Parse inputs (body or ?tag=)
+  const { tag: rawTag, max_results, next_cursor } = parseBodyOrQS(event);
+  const tag = (rawTag || "").trim();
+  const maxResults = Math.min(Number(max_results || 100), 500);
 
   if (!tag) {
-    return { statusCode: 400, headers: cors, body: JSON.stringify({ error: "Missing 'tag' in request body" }) };
+    return {
+      statusCode: 400,
+      headers: CORS,
+      body: JSON.stringify({
+        error: "Missing 'tag'. Send in JSON body {tag:\"...\"} or as ?tag=... ",
+      }),
+    };
   }
 
-  // ---- Configure SDK ----
+  // Configure Cloudinary
   cloudinary.config({
     cloud_name: CLOUDINARY_CLOUD_NAME,
     api_key: CLOUDINARY_API_KEY,
@@ -45,74 +94,64 @@ export const handler = async (event) => {
     secure: true,
   });
 
-  // Helper to normalize results
-  const normalize = (items = []) =>
-    items.map((r) => ({
-      public_id: r.public_id,
-      format: r.format,
-      width: r.width,
-      height: r.height,
-      bytes: r.bytes,
-      created_at: r.created_at,
-      secure_url: r.secure_url, // original delivery URL (no transforms applied unless you add them client-side)
-    }));
-
+  // Try Search API
   try {
-    // 1) Try the Search API (most flexible & robust)
-    // Tag expressions with hyphens/spaces should be quoted.
-    const expr = `tags="${tag}"`;
-
+    const expr = `tags="${tag}"`; // quotes handle dashes/spaces
     const search = cloudinary.search
       .expression(expr)
       .with_field("tags")
       .sort_by("public_id", "asc")
       .max_results(maxResults);
+    if (next_cursor) search.next_cursor(next_cursor);
 
-    if (nextCursor) search.next_cursor(nextCursor);
-
-    const res = await search.execute();
+    const r = await search.execute();
 
     return {
       statusCode: 200,
-      headers: cors,
+      headers: CORS,
       body: JSON.stringify({
         ok: true,
         source: "search",
-        count: (res.resources || []).length,
-        next_cursor: res.next_cursor || null,
-        resources: normalize(res.resources),
+        tag,
+        count: (r.resources || []).length,
+        next_cursor: r.next_cursor || null,
+        resources: normalize(r.resources),
       }),
     };
   } catch (err1) {
-    console.error("[list-by-tag] Search API failed:", err1?.message || err1);
-
-    // 2) Fallback to Admin API: resources_by_tag
+    // Fall back to Admin API
     try {
-      const res2 = await cloudinary.api.resources_by_tag(tag, {
+      const r2 = await cloudinary.api.resources_by_tag(tag, {
         max_results: maxResults,
-        next_cursor: nextCursor,
+        next_cursor,
       });
 
       return {
         statusCode: 200,
-        headers: cors,
+        headers: CORS,
         body: JSON.stringify({
           ok: true,
           source: "resources_by_tag",
-          count: (res2.resources || []).length,
-          next_cursor: res2.next_cursor || null,
-          resources: normalize(res2.resources),
+          tag,
+          count: (r2.resources || []).length,
+          next_cursor: r2.next_cursor || null,
+          resources: normalize(r2.resources),
         }),
       };
     } catch (err2) {
-      console.error("[list-by-tag] resources_by_tag failed:", err2?.message || err2);
-      // Return full details to help you diagnose from the client console
+      // Send full diagnostics back
       return {
         statusCode: 500,
-        headers: cors,
+        headers: CORS,
         body: JSON.stringify({
           error: "List failed",
-          detail: err2?.message || String(err2),
+          tag,
+          detail: {
+            search_error: String(err1?.message || err1),
+            admin_error: String(err2?.message || err2),
+          },
+          hint:
+            "Verify tag exists on your images (case-sensitive), cloud_name is correct, and API key/secret belong to that cloud.",
         }),
       };
     }
