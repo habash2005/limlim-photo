@@ -1,20 +1,21 @@
-# netlify.toml  (root of repo)
 [build]
   command = "npm run build"
   publish = "dist"
-  functions = "netlify/functions"
+  base = "photography-booking-app"
 
-# Let React Router handle all routes
+[functions]
+  node_bundler = "esbuild"
+  external_node_modules = ["cloudinary"]
+  node_js_version = "18"
+
+# SPA routing
 [[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200
 
-# If you use serverless functions later (e.g., /api/zip)
+# Functions proxy (you likely already have this)
 [[redirects]]
   from = "/api/*"
   to = "/.netlify/functions/:splat"
   status = 200
-  
-[build.environment]
-SECRETS_SCAN_SMART_DETECTION_ENABLED = "false"

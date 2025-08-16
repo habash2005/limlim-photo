@@ -53,16 +53,19 @@ export default function ClientGallery() {
       }
       setGallery(match);
 
-      // 3) fetch images (server-side Search API)
+      // 3) fetch images (POST the tag in the BODY)
       try {
-        const resp = await fetch(
-          `/.netlify/functions/list-by-tag?tag=${encodeURIComponent(match.tag)}`,
-          { method: "POST", cache: "no-store" }
-        );
+        const resp = await fetch("/.netlify/functions/list-by-tag", {
+          method: "POST",
+          cache: "no-store",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ tag: match.tag }),
+        });
         const text = await resp.text();
         const data = text ? JSON.parse(text) : {};
         if (!resp.ok || !data.ok) throw new Error(data?.error || "Failed to load images");
 
+        console.log("[list-by-tag]", data.source, "count:", data.count);
         const imgs = data.resources || [];
         if (imgs.length === 0) {
           setErr(`No images found for tag "${match.tag}". Make sure uploads used this exact tag.`);
