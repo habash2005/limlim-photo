@@ -13,7 +13,6 @@ export default function AdminUpload() {
   const [loading, setLoading] = useState(true);
   const [msg, setMsg] = useState("");
 
-  // Load available client galleries (for their tag)
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -28,7 +27,7 @@ export default function AdminUpload() {
         if (list.length) setSelectedId(list[0].id);
       } catch (e) {
         console.error("[AdminUpload] Firestore galleries fetch failed:", e);
-        setMsg("Couldn’t load galleries. You can still upload to Portfolio.");
+        setMsg("Couldn’t load galleries (check network/rules). You can still upload to Portfolio.");
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -62,7 +61,7 @@ export default function AdminUpload() {
     const widget = window.cloudinary.createUploadWidget(
       {
         cloudName: CLOUD_NAME,
-        uploadPreset: UPLOAD_PRESET, // unsigned preset with NO incoming transforms
+        uploadPreset: UPLOAD_PRESET,  // unsigned preset with NO incoming transformations
         folder,
         tags: [tag],
         multiple: true,
@@ -92,11 +91,8 @@ export default function AdminUpload() {
           return;
         }
         if (result?.event === "success") {
-          const info = result.info; // Cloudinary asset info
           const where = isPortfolio ? "Portfolio" : (selected?.name || "Gallery");
-          console.log("[AdminUpload] Uploaded:", info);
-          setMsg(`✅ Uploaded to ${where}: ${info.original_filename}`);
-          // No Firestore writes here — client galleries read images by tag from Cloudinary
+          setMsg(`✅ Uploaded to ${where}: ${result.info.original_filename}`);
         }
       }
     );
@@ -110,29 +106,16 @@ export default function AdminUpload() {
         <h2 className="text-2xl md:text-3xl font-serif font-semibold text-charcoal">Admin Upload</h2>
         <p className="text-charcoal/70 mt-1">
           Upload to the public <strong>Portfolio</strong> or pick a <strong>Client Gallery</strong>.
-          Tags are applied automatically.
         </p>
 
         {/* Mode toggle */}
         <div className="mt-6 flex gap-4 items-center">
           <label className="flex items-center gap-2">
-            <input
-              type="radio"
-              name="mode"
-              value="portfolio"
-              checked={mode === "portfolio"}
-              onChange={() => setMode("portfolio")}
-            />
+            <input type="radio" name="mode" value="portfolio" checked={mode === "portfolio"} onChange={() => setMode("portfolio")} />
             <span>Portfolio</span>
           </label>
           <label className="flex items-center gap-2">
-            <input
-              type="radio"
-              name="mode"
-              value="client"
-              checked={mode === "client"}
-              onChange={() => setMode("client")}
-            />
+            <input type="radio" name="mode" value="client" checked={mode === "client"} onChange={() => setMode("client")} />
             <span>Client Gallery</span>
           </label>
         </div>
@@ -155,11 +138,6 @@ export default function AdminUpload() {
                 </option>
               ))}
             </select>
-            {!loading && galleries.length === 0 && (
-              <div className="text-xs text-charcoal/70 mt-2">
-                Create one in the “New Gallery” box above, then come back.
-              </div>
-            )}
           </div>
         )}
 
@@ -177,7 +155,7 @@ export default function AdminUpload() {
 
         <div className="mt-4 text-xs text-charcoal/70">
           Portfolio uploads use tag <code>portfolio</code>. Client uploads use the gallery’s tag (
-          <code>{mode === "client" ? (galleries.find(g => g.id === selectedId)?.tag || "gal-&lt;slug&gt;") : "portfolio"}</code>).
+          <code>{mode === "client" ? (galleries.find((g) => g.id === selectedId)?.tag || "gal-&lt;slug&gt;") : "portfolio"}</code>).
         </div>
       </div>
     </section>
