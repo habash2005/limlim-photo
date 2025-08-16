@@ -1,12 +1,17 @@
 [build]
   command = "npm run build"
   publish = "dist"
-  base = "photography-booking-app"
+  # If your project lives in a subfolder, set base; otherwise remove this line:
+  # base = "photography-booking-app"
 
+  # ✅ Tell Netlify to use Node 18 during builds & functions
+  [build.environment]
+    NODE_VERSION = "18"
+
+# Bundle functions with esbuild and include the Cloudinary SDK
 [functions]
   node_bundler = "esbuild"
   external_node_modules = ["cloudinary"]
-  node_js_version = "18"
 
 # SPA routing
 [[redirects]]
@@ -14,8 +19,8 @@
   to = "/index.html"
   status = 200
 
-# Functions proxy (you likely already have this)
-[[redirects]]
-  from = "/api/*"
-  to = "/.netlify/functions/:splat"
-  status = 200
+# (Optional) If you rely on /api/* → functions:
+# [[redirects]]
+#   from = "/api/*"
+#   to = "/.netlify/functions/:splat"
+#   status = 200
