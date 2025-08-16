@@ -1,12 +1,20 @@
 // netlify/functions/cloudinary-zip.js
 import crypto from "node:crypto";
 
+/** Build Cloudinary signature (SHA-1) for Upload API */
 function signParams(params, apiSecret) {
-  // Cloudinary signing: sort keys asc, join as key=value (arrays joined by ',')
-  const toSign = Object.keys(params)
+  // Remove undefined/empty
+  const clean = Object.fromEntries(
+    Object.entries(params).filter(
+      ([, v]) => v !== undefined && v !== null && !(Array.isArray(v) && v.length === 0)
+    )
+  );
+
+  // Arrays must be comma-joined for signing
+  const toSign = Object.keys(clean)
     .sort()
     .map((k) => {
-      const v = Array.isArray(params[k]) ? params[k].join(",") : params[k];
+      const v = Array.isArray(clean[k]) ? clean[k].join(",") : clean[k];
       return `${k}=${v}`;
     })
     .join("&") + apiSecret;
@@ -42,44 +50,48 @@ export const handler = async (event) => {
   }
 
   try {
-    // Build Upload API signed request for download_zip_url
     const timestamp = Math.floor(Date.now() / 1000);
 
-    // Params to sign (see Cloudinary Upload API docs)
+    // Params to sign (Cloudinary expects arrays comma-joined when signing)
     const paramsToSign = {
       mode: "download",
-      public_ids,            // array of full public_ids (with folders), no extensions
+      public_ids: public_ids,           // array here; signParams will comma-join
       resource_type: "image",
       target_format: "zip",
       timestamp,
       type: "upload",
       use_original_filename: true,
-      // optional: target_public_id: filename.replace(/\.zip$/i, "") // if you want the zip to have a stable public_id
     };
 
     const signature = signParams(paramsToSign, CLOUDINARY_API_SECRET);
 
-    // Final body (include api_key + signature)
-    const body = {
-      ...paramsToSign,
-      api_key: CLOUDINARY_API_KEY,
-      signature,
-    };
+    // Build x-www-form-urlencoded body:
+    // public_ids must be sent as multiple public_ids[] fields.
+    const form = new URLSearchParams();
+    public_ids.forEach((id) => form.append("public_ids[]", id));
+    form.set("mode", "download");
+    form.set("resource_type", "image");
+    form.set("target_format", "zip");
+    form.set("type", "upload");
+    form.set("use_original_filename", "true");
+    form.set("timestamp", String(timestamp));
+    form.set("api_key", CLOUDINARY_API_KEY);
+    form.set("signature", signature);
 
-    // Upload API endpoint
     const url = `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/download_zip_url`;
 
     const resp = await fetch(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: form.toString(),
     });
 
     const text = await resp.text();
-    const data = text ? JSON.parse(text) : {};
+    let data;
+    try { data = text ? JSON.parse(text) : {}; }
+    catch { data = { raw: text }; } // if Cloudinary ever returns HTML again, we capture it
 
-    if (!resp.ok) {
-      // Bubble response so you can see exact reason in logs
+    if (!resp.ok || !data?.zip_url) {
       console.error("Cloudinary download_zip_url error", { status: resp.status, data });
       return {
         statusCode: 502,
@@ -88,7 +100,6 @@ export const handler = async (event) => {
       };
     }
 
-    // data.zip_url is the direct, one-time downloadable URL
     return {
       statusCode: 200,
       headers,
