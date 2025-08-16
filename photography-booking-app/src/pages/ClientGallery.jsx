@@ -16,11 +16,6 @@ function originalDownloadUrl(publicId, format) {
   return `https://res.cloudinary.com/${CLOUD_NAME}/image/upload/fl_attachment/${publicId}.${format}`;
 }
 
-// Build selected ids from *current* state (prevents stale reads)
-function getSelectedIds(images, selectedMap) {
-  return images.filter((i) => !!selectedMap[i.public_id]).map((i) => i.public_id);
-}
-
 export default function ClientGallery() {
   const [code, setCode] = useState("");
   const [loading, setLoading] = useState(false);
@@ -62,7 +57,7 @@ export default function ClientGallery() {
         );
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
-        const imgs = data.resources || [];
+        const imgs = (data.resources || []).filter((r) => r.resource_type === "image");
         setImages(imgs);
 
         // preselect all
@@ -104,22 +99,41 @@ export default function ClientGallery() {
     setSelected(next);
   }
 
-  // Core ZIP helper
-  async function zipByPublicIds(ids, filename) {
+  // Build payload expected by the Netlify zip function
+  function itemsFromImages(list) {
+    return list.map((img) => ({ public_id: img.public_id, format: img.format }));
+  }
+
+  // Call the Netlify function that fetches originals and zips server-side
+  async function zipImages(items, filename) {
     setZipping(true);
     try {
-      const resp = await fetch("/.netlify/functions/cloudinary-zip", {
+      const resp = await fetch("/.netlify/functions/zip-images", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ public_ids: ids, filename }),
+        body: JSON.stringify({
+          cloud_name: CLOUD_NAME,    // optional; function can read from env too
+          filename,
+          items,                     // [{ public_id, format }, ...]
+        }),
       });
-      const text = await resp.text();                 // robust parse
-      const data = text ? JSON.parse(text) : {};
+
       if (!resp.ok) {
-        console.error("Archive error detail:", data);
-        throw new Error(data?.detail?.message || data?.error || "Cloudinary error");
+        const info = await resp.json().catch(() => ({}));
+        console.error("Zip error detail:", info);
+        throw new Error(info?.detail || info?.error || "Zip failed");
       }
-      window.location.assign(data.url);
+
+      // We get a binary ZIP back; trigger browser download
+      const blob = await resp.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
     } catch (e) {
       console.error(e);
       alert(e.message || "Download failed. Please try again.");
@@ -129,15 +143,14 @@ export default function ClientGallery() {
   }
 
   async function downloadSelectedZip() {
-    const ids = getSelectedIds(images, selected);
-    if (!ids.length) return;
-    await zipByPublicIds(ids, "selected-images.zip");
+    const list = images.filter((i) => selected[i.public_id]);
+    if (!list.length) return;
+    await zipImages(itemsFromImages(list), "selected-images.zip");
   }
 
   async function downloadAllZip() {
-    const ids = images.map((i) => i.public_id);
-    if (!ids.length) return;
-    await zipByPublicIds(ids, "all-images.zip");
+    if (!images.length) return;
+    await zipImages(itemsFromImages(images), "all-images.zip");
   }
 
   return (
@@ -195,7 +208,7 @@ export default function ClientGallery() {
                     ref={(el) => el && (el.indeterminate = !allChecked && someChecked)}
                     onChange={(e) => toggleAll(e.target.checked)}
                   />
-                Select all
+                  Select all
                 </label>
 
                 <button
@@ -231,6 +244,7 @@ export default function ClientGallery() {
             {images.length > 0 ? (
               <div className="mt-6 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
                 {images.map((img) => {
+                  // fast preview (transformed). Downloads use originals.
                   const previewSrc = `https://res.cloudinary.com/${CLOUD_NAME}/image/upload/c_fill,g_auto,f_auto,q_auto,w_800,h_800/${img.public_id}.${img.format}`;
                   return (
                     <figure key={img.public_id} className="overflow-hidden rounded-xl shadow-sm hover:shadow-lg transition-shadow">
@@ -251,6 +265,7 @@ export default function ClientGallery() {
                             {img.public_id.split("/").pop()}
                           </span>
                         </label>
+                        {/* Single original download */}
                         <a
                           className="underline text-charcoal/70 hover:text-rose"
                           href={originalDownloadUrl(img.public_id, img.format)}
