@@ -1,7 +1,7 @@
 // src/pages/AdminUpload.jsx
 import React, { useEffect, useMemo, useState, useCallback } from "react";
 import { db } from "../lib/firebase";
-import { collection, getDocs, doc, setDoc, serverTimestamp } from "firebase/firestore";
+import { collection, getDocs } from "firebase/firestore";
 
 const CLOUD_NAME = "lamaphoto";
 const UPLOAD_PRESET = "lamaphoto_unsigned";
@@ -13,6 +13,7 @@ export default function AdminUpload() {
   const [loading, setLoading] = useState(true);
   const [msg, setMsg] = useState("");
 
+  // Load available client galleries (for their tag)
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -27,17 +28,18 @@ export default function AdminUpload() {
         if (list.length) setSelectedId(list[0].id);
       } catch (e) {
         console.error("[AdminUpload] Firestore galleries fetch failed:", e);
-        setMsg("Couldn’t load galleries (check network/rules). You can still upload to Portfolio.");
+        setMsg("Couldn’t load galleries. You can still upload to Portfolio.");
       } finally {
         if (!cancelled) setLoading(false);
       }
     })();
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, []);
 
-  const selected = useMemo(() => galleries.find((g) => g.id === selectedId) || null, [galleries, selectedId]);
+  const selected = useMemo(
+    () => galleries.find((g) => g.id === selectedId) || null,
+    [galleries, selectedId]
+  );
 
   const openWidget = useCallback(() => {
     if (!window.cloudinary) {
@@ -60,15 +62,13 @@ export default function AdminUpload() {
     const widget = window.cloudinary.createUploadWidget(
       {
         cloudName: CLOUD_NAME,
-        uploadPreset: UPLOAD_PRESET, // unsigned preset
+        uploadPreset: UPLOAD_PRESET, // unsigned preset with NO incoming transforms
         folder,
         tags: [tag],
         multiple: true,
         sources: ["local", "camera", "url", "google_drive", "dropbox"],
         clientAllowedFormats: ["jpg", "jpeg", "png", "webp"],
         maxFileSize: 20_000_000,
-        // IMPORTANT: keep original quality — DO NOT add transformations here.
-        // Ensure your upload preset has NO "Incoming Transformations".
         styles: {
           palette: {
             window: "#FFF8F0",
@@ -85,7 +85,7 @@ export default function AdminUpload() {
           },
         },
       },
-      async (error, result) => {
+      (error, result) => {
         if (error) {
           console.error("[AdminUpload] Upload error:", error);
           setMsg("Upload error — see console.");
@@ -94,30 +94,9 @@ export default function AdminUpload() {
         if (result?.event === "success") {
           const info = result.info; // Cloudinary asset info
           const where = isPortfolio ? "Portfolio" : (selected?.name || "Gallery");
-
-          // 🔐 Save to Firestore when uploading to a client gallery
-          try {
-            if (!isPortfolio && selected?.id) {
-              const imgCol = collection(db, `galleries/${selected.id}/images`);
-              const imgDoc = doc(imgCol);
-              await setDoc(imgDoc, {
-                public_id: info.public_id,            // e.g. client-galleries/xyz123
-                format: info.format,                  // jpg/png/webp
-                bytes: info.bytes,                    // size in bytes
-                width: info.width,
-                height: info.height,
-                secure_url: info.secure_url,          // original delivery (no transforms)
-                original_filename: info.original_filename,
-                version: info.version,
-                tag,                                   // gallery tag
-                createdAt: serverTimestamp(),
-              });
-            }
-            setMsg(`✅ Uploaded to ${where}: ${info.original_filename}`);
-          } catch (e) {
-            console.error("[AdminUpload] Firestore write failed:", e);
-            setMsg("Uploaded to Cloudinary, but failed to save to Firestore.");
-          }
+          console.log("[AdminUpload] Uploaded:", info);
+          setMsg(`✅ Uploaded to ${where}: ${info.original_filename}`);
+          // No Firestore writes here — client galleries read images by tag from Cloudinary
         }
       }
     );
@@ -131,16 +110,29 @@ export default function AdminUpload() {
         <h2 className="text-2xl md:text-3xl font-serif font-semibold text-charcoal">Admin Upload</h2>
         <p className="text-charcoal/70 mt-1">
           Upload to the public <strong>Portfolio</strong> or pick a <strong>Client Gallery</strong>.
+          Tags are applied automatically.
         </p>
 
         {/* Mode toggle */}
         <div className="mt-6 flex gap-4 items-center">
           <label className="flex items-center gap-2">
-            <input type="radio" name="mode" value="portfolio" checked={mode === "portfolio"} onChange={() => setMode("portfolio")} />
+            <input
+              type="radio"
+              name="mode"
+              value="portfolio"
+              checked={mode === "portfolio"}
+              onChange={() => setMode("portfolio")}
+            />
             <span>Portfolio</span>
           </label>
           <label className="flex items-center gap-2">
-            <input type="radio" name="mode" value="client" checked={mode === "client"} onChange={() => setMode("client")} />
+            <input
+              type="radio"
+              name="mode"
+              value="client"
+              checked={mode === "client"}
+              onChange={() => setMode("client")}
+            />
             <span>Client Gallery</span>
           </label>
         </div>
@@ -157,20 +149,21 @@ export default function AdminUpload() {
             >
               {loading && <option>Loading…</option>}
               {!loading && galleries.length === 0 && <option>No galleries found</option>}
-              {!loading &&
-                galleries.map((g) => (
-                  <option key={g.id} value={g.id}>
-                    {g.name} — {g.slug} ({g.tag})
-                  </option>
-                ))}
+              {!loading && galleries.map((g) => (
+                <option key={g.id} value={g.id}>
+                  {g.name} — {g.slug} ({g.tag})
+                </option>
+              ))}
             </select>
             {!loading && galleries.length === 0 && (
-              <div className="text-xs text-charcoal/70 mt-2">Create one in the “New Gallery” box above, then come back.</div>
+              <div className="text-xs text-charcoal/70 mt-2">
+                Create one in the “New Gallery” box above, then come back.
+              </div>
             )}
           </div>
         )}
 
-        {/* Upload button (always enabled) */}
+        {/* Upload button */}
         <div className="mt-6">
           <button
             onClick={openWidget}
@@ -184,7 +177,7 @@ export default function AdminUpload() {
 
         <div className="mt-4 text-xs text-charcoal/70">
           Portfolio uploads use tag <code>portfolio</code>. Client uploads use the gallery’s tag (
-          <code>{mode === "client" ? galleries.find((g) => g.id === selectedId)?.tag || "gal-&lt;slug&gt;" : "portfolio"}</code>).
+          <code>{mode === "client" ? (galleries.find(g => g.id === selectedId)?.tag || "gal-&lt;slug&gt;") : "portfolio"}</code>).
         </div>
       </div>
     </section>
