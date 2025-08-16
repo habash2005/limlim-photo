@@ -1,34 +1,29 @@
 // src/pages/ClientGallery.jsx
 import React, { useState } from "react";
 import { db } from "../lib/firebase";
-import { collection, getDocs } from "firebase/firestore";
-import JSZip from "jszip";
 import { saveAs } from "file-saver";
+import { collection, getDocs, query, orderBy } from "firebase/firestore";
 
-const CLOUD_NAME = "lamaphoto";
+const CLOUD_NAME = "lamaphoto"; // Cloudinary cloud name
 
-// Hash helper
 async function sha256(text) {
   const buf = new TextEncoder().encode(text);
   const hash = await crypto.subtle.digest("SHA-256", buf);
   return Array.from(new Uint8Array(hash)).map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-// direct original download link (single)
+// Original download URL (no transforms), forced as attachment
 function originalDownloadUrl(publicId, format) {
   return `https://res.cloudinary.com/${CLOUD_NAME}/image/upload/fl_attachment/${publicId}.${format}`;
-}
-
-function getSelectedIds(images, selectedMap) {
-  return images.filter((i) => !!selectedMap[i.public_id]).map((i) => i.public_id);
 }
 
 export default function ClientGallery() {
   const [code, setCode] = useState("");
   const [loading, setLoading] = useState(false);
-  const [gallery, setGallery] = useState(null);   // { id, name, tag, ... }
-  const [images, setImages] = useState([]);       // [{ public_id, format, secure_url, ... }]
+  const [gallery, setGallery] = useState(null); // { id, name, slug, tag, ... }
+  const [images, setImages] = useState([]);     // [{ public_id, format, ... }]
   const [err, setErr] = useState("");
+
   const [selected, setSelected] = useState({});
   const [zipping, setZipping] = useState(false);
 
@@ -40,14 +35,13 @@ export default function ClientGallery() {
     setSelected({});
 
     try {
-      // 1) load galleries (include doc id)
+      // 1) load galleries
       const snap = await getDocs(collection(db, "galleries"));
       const galleries = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
 
-      // 2) verify access code
+      // 2) verify code
       const hash = await sha256(code.trim());
       const match = galleries.find((g) => g.codeHash === hash);
-
       if (!match) {
         setErr("Invalid access code. Double-check and try again.");
         setLoading(false);
@@ -56,27 +50,25 @@ export default function ClientGallery() {
       setGallery(match);
 
       // 3) fetch images from Firestore subcollection
-      try {
-        const imgsSnap = await getDocs(collection(db, `galleries/${match.id}/images`));
-        const imgs = imgsSnap.docs.map((d) => d.data());
-        if (imgs.length === 0) {
-          setErr("No images yet for this gallery.");
-        } else {
-          setErr("");
-        }
-        setImages(imgs);
+      const imagesCol = collection(db, `galleries/${match.id}/images`);
+      const qy = query(imagesCol, orderBy("createdAt", "asc"));
+      const imgsSnap = await getDocs(qy);
+      const imgs = imgsSnap.docs.map((d) => d.data());
 
-        // preselect all
-        const pre = {};
-        imgs.forEach((img) => { pre[img.public_id] = true; });
-        setSelected(pre);
-      } catch (imgErr) {
-        console.error("[ClientGallery] Failed to load images:", imgErr);
-        setErr("Could not load images for this gallery. Please try again.");
+      if (imgs.length === 0) {
+        setErr(`No images found for gallery "${match.name}". Make sure you uploaded with this gallery selected.`);
+      } else {
+        setErr("");
       }
+      setImages(imgs);
+
+      // preselect all
+      const pre = {};
+      imgs.forEach((img) => { pre[img.public_id] = true; });
+      setSelected(pre);
     } catch (e) {
       console.error(e);
-      setErr("There was a problem checking your code. Please try again.");
+      setErr("There was a problem opening your gallery. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -101,55 +93,49 @@ export default function ClientGallery() {
     setSelected(next);
   };
 
-  // ---- ZIP (server-first, client-fallback) ----
-  async function zipByPublicIds(ids, filename) {
+  // ZIP originals via server (streams a zip back as binary)
+  async function zipItems(items, filename) {
     setZipping(true);
     try {
-      // Attempt server function
       const resp = await fetch("/.netlify/functions/zip-images", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ public_ids: ids, filename }),
+        body: JSON.stringify({ items, filename }),
       });
-      const text = await resp.text();
-      const data = text ? JSON.parse(text) : {};
-      if (resp.ok && data.url) {
-        window.location.assign(data.url);
+
+      const contentType = resp.headers.get("content-type") || "";
+      if (resp.ok && contentType.includes("application/zip")) {
+        // It's the ZIP file itself — save it
+        const blob = await resp.blob();
+        saveAs(blob, filename || "photos.zip");
         return;
       }
-      // If server failed, fall back to client-side zip
-      console.warn("[ClientGallery] zip-images failed, using client-side zip", data);
 
-      const zip = new JSZip();
-      // Fetch each original and add to zip
-      for (const id of ids) {
-        const img = images.find((i) => i.public_id === id);
-        const url = img?.secure_url || originalDownloadUrl(img.public_id, img.format);
-        const res = await fetch(url, { cache: "no-store" });
-        const blob = await res.blob();
-        const name = (img?.original_filename || id.split("/").pop()) + "." + (img?.format || "jpg");
-        zip.file(name, blob);
-      }
-      const blob = await zip.generateAsync({ type: "blob" });
-      saveAs(blob, filename);
+      // Otherwise, try to read a JSON error payload
+      const text = await resp.text();
+      let data = {};
+      try { data = text ? JSON.parse(text) : {}; } catch {}
+      throw new Error(data?.error || `Archive failed (${resp.status})`);
     } catch (e) {
       console.error(e);
-      alert(e.message || "Download failed.");
+      alert(e.message || "Download failed. Please try again.");
     } finally {
       setZipping(false);
     }
   }
 
   const downloadSelectedZip = async () => {
-    const ids = getSelectedIds(images, selected);
-    if (!ids.length) return;
-    await zipByPublicIds(ids, "selected-images.zip");
+    const items = images
+      .filter((i) => !!selected[i.public_id])
+      .map((i) => ({ public_id: i.public_id, format: i.format }));
+    if (!items.length) return;
+    await zipItems(items, "selected-images.zip");
   };
 
   const downloadAllZip = async () => {
-    const ids = images.map((i) => i.public_id);
-    if (!ids.length) return;
-    await zipByPublicIds(ids, "all-images.zip");
+    const items = images.map((i) => ({ public_id: i.public_id, format: i.format }));
+    if (!items.length) return;
+    await zipItems(items, "all-images.zip");
   };
 
   return (
@@ -167,13 +153,17 @@ export default function ClientGallery() {
               onChange={(e) => setCode(e.target.value)}
               placeholder="Access code"
               className="w-full rounded-xl border border-rose/30 px-3 py-2 bg-white"
-              onKeyDown={(e) => { if (e.key === "Enter" && !loading && code.trim()) checkCode(); }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !loading && code.trim()) checkCode();
+              }}
             />
             <button
               onClick={checkCode}
               disabled={loading || !code.trim()}
               className={`rounded-full px-5 py-3 text-sm font-semibold shadow-md transition-all ${
-                loading || !code.trim() ? "bg-blush text-charcoal/50 cursor-not-allowed" : "bg-rose text-ivory hover:bg-gold hover:text-charcoal"
+                loading || !code.trim()
+                  ? "bg-blush text-charcoal/50 cursor-not-allowed"
+                  : "bg-rose text-ivory hover:bg-gold hover:text-charcoal"
               }`}
             >
               {loading ? "Checking…" : "Open Gallery"}
@@ -182,7 +172,7 @@ export default function ClientGallery() {
           </div>
         )}
 
-        {/* Step 2: Grid + actions */}
+        {/* Step 2: Gallery grid + download controls */}
         {gallery && (
           <div className="mt-8">
             <div className="flex items-center justify-between gap-3 flex-wrap">
@@ -228,12 +218,12 @@ export default function ClientGallery() {
               </div>
             </div>
 
-            {/* Grid */}
             {images.length > 0 ? (
               <div className="mt-6 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
                 {images.map((img) => {
-                  // Quick preview (transformed). Downloads use originals.
-                  const previewSrc = `https://res.cloudinary.com/${CLOUD_NAME}/image/upload/c_fill,g_auto,f_auto,q_auto,w_800,h_800/${img.public_id}.${img.format}`;
+                  // Fast preview (transformed). Downloads use originals.
+                  const previewSrc =
+                    `https://res.cloudinary.com/${CLOUD_NAME}/image/upload/c_fill,g_auto,f_auto,q_auto,w_800,h_800/${img.public_id}.${img.format}`;
                   return (
                     <figure key={img.public_id} className="overflow-hidden rounded-xl shadow-sm hover:shadow-lg transition-shadow">
                       <img
@@ -250,9 +240,10 @@ export default function ClientGallery() {
                             onChange={() => toggleOne(img.public_id)}
                           />
                           <span className="truncate max-w-[10rem]">
-                            {img.original_filename || img.public_id.split("/").pop()}
+                            {img.public_id.split("/").pop()}
                           </span>
                         </label>
+                        {/* Single original download (no transforms) */}
                         <a
                           className="underline text-charcoal/70 hover:text-rose"
                           href={originalDownloadUrl(img.public_id, img.format)}

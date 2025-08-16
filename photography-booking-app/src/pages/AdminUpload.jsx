@@ -3,8 +3,8 @@ import React, { useEffect, useMemo, useState, useCallback } from "react";
 import { db } from "../lib/firebase";
 import { collection, getDocs, doc, setDoc, serverTimestamp } from "firebase/firestore";
 
-const CLOUD_NAME = "lamaphoto";
-const UPLOAD_PRESET = "lamaphoto_unsigned"; // make sure this preset has NO incoming transformations
+const CLOUD_NAME = "lamaphoto";            // 👈 your cloud name
+const UPLOAD_PRESET = "lamaphoto_unsigned"; // 👈 unsigned preset with NO incoming transforms
 
 export default function AdminUpload() {
   const [mode, setMode] = useState("portfolio"); // "portfolio" | "client"
@@ -27,7 +27,7 @@ export default function AdminUpload() {
         if (list.length) setSelectedId(list[0].id);
       } catch (e) {
         console.error("[AdminUpload] Firestore galleries fetch failed:", e);
-        setMsg("Couldn’t load galleries. You can still upload to Portfolio.");
+        setMsg("Couldn’t load galleries (check network/rules). You can still upload to Portfolio.");
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -43,12 +43,12 @@ export default function AdminUpload() {
   const openWidget = useCallback(() => {
     if (!window.cloudinary) {
       setMsg("Upload widget not loaded yet. Try again in a second.");
-      console.warn("[AdminUpload] window.cloudinary is undefined.");
+      console.warn("[AdminUpload] window.cloudinary is undefined. Is the script loaded?");
       return;
     }
 
     const isPortfolio = mode === "portfolio";
-    const tag   = isPortfolio ? "portfolio" : selected?.tag;
+    const tag = isPortfolio ? "portfolio" : selected?.tag;
     const folder = isPortfolio ? "portfolio" : "client-galleries";
 
     if (!isPortfolio && !tag) {
@@ -61,9 +61,9 @@ export default function AdminUpload() {
     const widget = window.cloudinary.createUploadWidget(
       {
         cloudName: CLOUD_NAME,
-        uploadPreset: UPLOAD_PRESET,
+        uploadPreset: UPLOAD_PRESET, // unsigned preset (no quality loss!)
         folder,
-        tags: [tag],                 // ← ensures tag is on the asset
+        tags: [tag],
         multiple: true,
         sources: ["local", "camera", "url", "google_drive", "dropbox"],
         clientAllowedFormats: ["jpg", "jpeg", "png", "webp"],
@@ -93,14 +93,13 @@ export default function AdminUpload() {
         if (result?.event === "success") {
           const info = result.info; // Cloudinary asset info
           const where = isPortfolio ? "Portfolio" : (selected?.name || "Gallery");
-
-          // Write metadata only for client galleries so ClientGallery can read them.
           try {
+            // Only save to Firestore for client galleries (portfolio doesn’t need listing)
             if (!isPortfolio && selected?.id) {
               const imgCol = collection(db, `galleries/${selected.id}/images`);
               const imgDoc = doc(imgCol);
               await setDoc(imgDoc, {
-                public_id: info.public_id,            // e.g. client-galleries/abcd1234
+                public_id: info.public_id,            // e.g. client-galleries/xyz123
                 format: info.format,                  // jpg/png/webp
                 bytes: info.bytes,
                 width: info.width,
@@ -128,9 +127,10 @@ export default function AdminUpload() {
     <section className="w-full py-16 md:py-24 bg-ivory">
       <div className="max-w-3xl mx-auto px-4">
         <h2 className="text-2xl md:text-3xl font-serif font-semibold text-charcoal">Admin Upload</h2>
-        <p className="text-charcoal/70 mt-1">Upload to the public <strong>Portfolio</strong> or pick a <strong>Client Gallery</strong>.</p>
+        <p className="text-charcoal/70 mt-1">
+          Upload to the public <strong>Portfolio</strong> or pick a <strong>Client Gallery</strong>.
+        </p>
 
-        {/* Mode toggle */}
         <div className="mt-6 flex gap-4 items-center">
           <label className="flex items-center gap-2">
             <input type="radio" name="mode" value="portfolio" checked={mode === "portfolio"} onChange={() => setMode("portfolio")} />
@@ -142,7 +142,6 @@ export default function AdminUpload() {
           </label>
         </div>
 
-        {/* Client gallery picker */}
         {mode === "client" && (
           <div className="mt-4">
             <label className="text-sm font-medium text-charcoal">Select gallery</label>
@@ -160,10 +159,14 @@ export default function AdminUpload() {
                 </option>
               ))}
             </select>
+            {!loading && galleries.length === 0 && (
+              <div className="text-xs text-charcoal/70 mt-2">
+                Create one in the “New Gallery” box above, then come back.
+              </div>
+            )}
           </div>
         )}
 
-        {/* Upload */}
         <div className="mt-6">
           <button
             onClick={openWidget}

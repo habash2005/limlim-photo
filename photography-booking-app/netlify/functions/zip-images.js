@@ -1,5 +1,6 @@
 // netlify/functions/zip-images.js
-import { v2 as cloudinary } from "cloudinary";
+import { PassThrough } from "node:stream";
+import archiver from "archiver";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -7,51 +8,97 @@ const CORS = {
 };
 
 export const handler = async (event) => {
-  if (event.httpMethod === "OPTIONS") return { statusCode: 200, headers: CORS };
+  if (event.httpMethod === "OPTIONS") {
+    return { statusCode: 200, headers: CORS };
+  }
   if (event.httpMethod !== "POST") {
     return { statusCode: 405, headers: CORS, body: JSON.stringify({ error: "Method not allowed" }) };
   }
 
-  const { CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET } = process.env || {};
-  if (!CLOUDINARY_CLOUD_NAME || !CLOUDINARY_API_KEY || !CLOUDINARY_API_SECRET) {
-    return { statusCode: 500, headers: CORS, body: JSON.stringify({ error: "Missing Cloudinary env vars" }) };
-    }
-
-  let body;
-  try { body = JSON.parse(event.body || "{}"); } catch { body = {}; }
-  const public_ids = Array.isArray(body.public_ids) ? body.public_ids : [];
-  const filename = (body.filename || "photos.zip").replace(/[^\w.\-]/g, "_");
-  if (!public_ids.length) {
-    return { statusCode: 400, headers: CORS, body: JSON.stringify({ error: "Provide public_ids[]" }) };
+  // Cloud name is all we need (we fetch originals via public URLs)
+  const { CLOUDINARY_CLOUD_NAME } = process.env;
+  if (!CLOUDINARY_CLOUD_NAME) {
+    return {
+      statusCode: 500,
+      headers: CORS,
+      body: JSON.stringify({ error: "Missing CLOUDINARY_CLOUD_NAME env var" }),
+    };
   }
 
-  cloudinary.config({
-    cloud_name: CLOUDINARY_CLOUD_NAME,
-    api_key: CLOUDINARY_API_KEY,
-    api_secret: CLOUDINARY_API_SECRET,
-    secure: true,
+  // Parse body
+  let payload = {};
+  try {
+    payload = JSON.parse(event.body || "{}");
+  } catch {
+    return { statusCode: 400, headers: CORS, body: JSON.stringify({ error: "Invalid JSON" }) };
+  }
+
+  const items = Array.isArray(payload.items) ? payload.items : [];
+  const filename = String(payload.filename || "photos.zip")
+    .replace(/[^a-zA-Z0-9._-]/g, "_");
+
+  if (items.length === 0) {
+    return { statusCode: 400, headers: CORS, body: JSON.stringify({ error: "No items to zip" }) };
+  }
+
+  // Prepare archiver piping into an in-memory stream
+  const zip = archiver("zip", { zlib: { level: 9 } });
+  const passthrough = new PassThrough();
+  zip.pipe(passthrough);
+
+  // Collect chunks from the stream
+  const chunks = [];
+  const collect = new Promise((resolve, reject) => {
+    passthrough.on("data", (chunk) => chunks.push(chunk));
+    passthrough.on("end", resolve);
+    passthrough.on("error", reject);
   });
 
   try {
-    // Cloudinary "generate_archive" via SDK
-    const res = await cloudinary.utils.download_folder
-      ? // If SDK has helper (older v1 sometimes exposes helpers)
-        cloudinary.utils.download_multiple(public_ids, { resource_type: "image", target_public_id: filename })
-      : // Use Admin API directly
-        cloudinary.api.create_zip({
-          public_ids,
-          resource_type: "image",
-          flatten_folders: true,
-          target_public_id: filename.replace(/\.zip$/i, ""),
-        });
+    // Fetch each original file and append to archive
+    for (const it of items) {
+      const public_id = String(it.public_id || "").trim();
+      const format = String(it.format || "").trim();
 
-    // Different SDK methods return different shapes; normalize
-    const url = typeof res === "string" ? res : res?.url || res?.secure_url;
-    if (!url) throw new Error("No archive URL returned");
+      if (!public_id || !format) continue;
 
-    return { statusCode: 200, headers: CORS, body: JSON.stringify({ ok: true, url }) };
+      // Original file URL (no transforms). We don't need fl_attachment for fetching.
+      const url = `https://res.cloudinary.com/${CLOUDINARY_CLOUD_NAME}/image/upload/${public_id}.${format}`;
+
+      const res = await fetch(url, { cache: "no-store" });
+      if (!res.ok) {
+        // Skip missing/broken assets instead of failing the whole zip
+        // You can `throw` here if you prefer strict mode.
+        continue;
+      }
+
+      const arrBuf = await res.arrayBuffer();
+      const buf = Buffer.from(arrBuf);
+      const base = public_id.split("/").pop() || "image";
+      zip.append(buf, { name: `${base}.${format}` });
+    }
+
+    await zip.finalize();
+    await collect;
+
+    const zipBuf = Buffer.concat(chunks);
+
+    return {
+      statusCode: 200,
+      headers: {
+        ...CORS,
+        "Content-Type": "application/zip",
+        "Content-Disposition": `attachment; filename="${filename}"`,
+      },
+      body: zipBuf.toString("base64"),
+      isBase64Encoded: true,
+    };
   } catch (e) {
-    console.error("[zip-images] error:", e?.message || e);
-    return { statusCode: 500, headers: CORS, body: JSON.stringify({ error: "Archive failed", detail: e?.message || String(e) }) };
+    console.error("[zip-images] Failed:", e);
+    return {
+      statusCode: 500,
+      headers: CORS,
+      body: JSON.stringify({ error: "ZIP failed", detail: String(e) }),
+    };
   }
 };
