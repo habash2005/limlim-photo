@@ -6,52 +6,129 @@ const CORS = {
   "Access-Control-Allow-Headers": "Content-Type",
 };
 
+function shapeError(e) {
+  return {
+    name: e?.name || null,
+    message: e?.message || String(e),
+    http_code: e?.http_code || e?.status || null,
+    // Cloudinary admin/search errors usually include a response body
+    response_body: e?.response?.body || null,
+    raw: (() => { try { return JSON.parse(JSON.stringify(e)); } catch { return String(e); } })(),
+  };
+}
+
+function mask(val, keep = 4) {
+  if (!val || typeof val !== "string") return null;
+  if (val.length <= keep) return val;
+  return `${val.slice(0, 2)}…${val.slice(-keep)}`;
+}
+
 export const handler = async (event) => {
   if (event.httpMethod === "OPTIONS") return { statusCode: 200, headers: CORS };
-  if (event.httpMethod !== "POST" && event.httpMethod !== "GET") {
+  if (event.httpMethod !== "GET" && event.httpMethod !== "POST") {
     return { statusCode: 405, headers: CORS, body: JSON.stringify({ error: "Method not allowed" }) };
   }
 
-  const { CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET } = process.env;
+  // Parse input tag if present (JSON body or ?tag=)
+  let tag = "";
+  try {
+    if (event.body) {
+      const b = JSON.parse(event.body);
+      if (b?.tag) tag = String(b.tag).trim();
+    }
+  } catch {}
+  if (!tag) {
+    const qs = new URLSearchParams(event.queryStringParameters || {});
+    tag = (qs.get("tag") || "").trim();
+  }
+
+  const { CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET } = process.env || {};
+
+  // Quick env summary
+  const envSummary = {
+    CLOUDINARY_CLOUD_NAME,
+    CLOUDINARY_API_KEY: mask(CLOUDINARY_API_KEY),
+    CLOUDINARY_API_SECRET: mask(CLOUDINARY_API_SECRET),
+  };
+
   if (!CLOUDINARY_CLOUD_NAME || !CLOUDINARY_API_KEY || !CLOUDINARY_API_SECRET) {
     return {
       statusCode: 500,
       headers: CORS,
       body: JSON.stringify({
+        ok: false,
+        step: "env",
         error: "Missing Cloudinary env vars",
-        CLOUDINARY_CLOUD_NAME: CLOUDINARY_CLOUD_NAME || null,
-        CLOUDINARY_API_KEY_tail: CLOUDINARY_API_KEY ? CLOUDINARY_API_KEY.slice(-4) : null,
+        expect: ["CLOUDINARY_CLOUD_NAME", "CLOUDINARY_API_KEY", "CLOUDINARY_API_SECRET"],
+        envSummary,
       }),
     };
   }
 
-  cloudinary.config({
-    cloud_name: CLOUDINARY_CLOUD_NAME,
-    api_key: CLOUDINARY_API_KEY,
-    api_secret: CLOUDINARY_API_SECRET,
-    secure: true,
-  });
-
-  // read tag from body or query
-  let tag = "";
   try {
-    if (event.body) tag = (JSON.parse(event.body).tag || "").trim();
-  } catch {}
-  if (!tag && event.queryStringParameters?.tag) tag = event.queryStringParameters.tag.trim();
+    cloudinary.config({
+      cloud_name: CLOUDINARY_CLOUD_NAME,
+      api_key: CLOUDINARY_API_KEY,
+      api_secret: CLOUDINARY_API_SECRET,
+      secure: true,
+    });
 
-  try {
-    // basic auth check
-    const ping = await cloudinary.api.ping(); // { status: "ok" }
-    // try a tiny sample call so we see *something* even if tag is empty
-    const sample = await cloudinary.api.resources({ max_results: 1 });
+    // 1) Ping Cloudinary (simple auth sanity)
+    let ping;
+    try {
+      // ping uses Admin API; will fail if creds/cloud are wrong
+      ping = await cloudinary.api.ping();
+    } catch (e) {
+      return {
+        statusCode: 500,
+        headers: CORS,
+        body: JSON.stringify({
+          ok: false,
+          step: "ping",
+          error: "Cloudinary Admin API ping failed",
+          detail: shapeError(e),
+          envSummary,
+        }),
+      };
+    }
 
-    let byTag = null;
+    // 2) Optionally test a tag if provided
+    let tagTest = null;
     if (tag) {
+      // Search API
+      let searchRes = null;
+      let searchErr = null;
       try {
-        byTag = await cloudinary.api.resources_by_tag(tag, { max_results: 5 });
+        const expr = `tags="${tag}"`;
+        searchRes = await cloudinary.search
+          .expression(expr)
+          .with_field("tags")
+          .max_results(5)
+          .execute();
       } catch (e) {
-        byTag = { error: String(e && e.message ? e.message : e) };
+        searchErr = shapeError(e);
       }
+
+      // Admin API fallback
+      let adminRes = null;
+      let adminErr = null;
+      try {
+        adminRes = await cloudinary.api.resources_by_tag(tag, { max_results: 5 });
+      } catch (e) {
+        adminErr = shapeError(e);
+      }
+
+      tagTest = {
+        tag,
+        search: searchRes
+          ? { ok: true, count: (searchRes.resources || []).length }
+          : { ok: false, error: searchErr },
+        admin: adminRes
+          ? { ok: true, count: (adminRes.resources || []).length }
+          : { ok: false, error: adminErr },
+        hint:
+          "If both fail, your credentials or cloud_name are wrong for where the assets live. If Search fails but Admin works, your plan/permissions may disallow Search API.",
+      };
     }
 
     return {
@@ -59,22 +136,21 @@ export const handler = async (event) => {
       headers: CORS,
       body: JSON.stringify({
         ok: true,
+        envSummary,
         ping,
-        cloud: CLOUDINARY_CLOUD_NAME,
-        key_tail: CLOUDINARY_API_KEY.slice(-4),
-        sample_count: (sample.resources || []).length,
-        tag,
-        byTag_count: byTag?.resources ? byTag.resources.length : 0,
-        byTag_error: byTag && byTag.error ? byTag.error : null,
+        ...(tag ? { tagTest } : {}),
       }),
     };
-  } catch (err) {
+  } catch (e) {
     return {
       statusCode: 500,
       headers: CORS,
       body: JSON.stringify({
+        ok: false,
+        step: "unknown",
         error: "Diag failed",
-        detail: String(err?.message || err),
+        detail: shapeError(e),
+        envSummary,
       }),
     };
   }

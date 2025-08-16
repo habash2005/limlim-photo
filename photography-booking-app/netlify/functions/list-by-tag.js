@@ -7,27 +7,24 @@ const CORS = {
 };
 
 function parseBodyOrQS(event) {
-  // Try JSON body
+  // Try JSON body first
   try {
     if (event.body) {
       const b = JSON.parse(event.body);
       if (b && (b.tag || b.max_results || b.next_cursor)) return b;
     }
   } catch {}
-  // Try query string as a fallback
-  const params = new URLSearchParams(event.queryStringParameters || {});
-  const tag = (params.get("tag") || "").trim();
-  const max_results = params.get("max_results");
-  const next_cursor = params.get("next_cursor");
+  // Fallback to querystring (?tag=..., ?max_results=..., ?next_cursor=...)
+  const qs = new URLSearchParams(event.queryStringParameters || {});
   return {
-    tag,
-    max_results: max_results ? Number(max_results) : undefined,
-    next_cursor: next_cursor || undefined,
+    tag: (qs.get("tag") || "").trim(),
+    max_results: qs.get("max_results") ? Number(qs.get("max_results")) : undefined,
+    next_cursor: qs.get("next_cursor") || undefined,
   };
 }
 
-function normalize(items = []) {
-  return items.map((r) => ({
+const normalize = (items = []) =>
+  items.map((r) => ({
     public_id: r.public_id,
     format: r.format,
     width: r.width,
@@ -35,58 +32,52 @@ function normalize(items = []) {
     bytes: r.bytes,
     created_at: r.created_at,
     secure_url: r.secure_url,
+    // include tags for sanity checks in dev (safe—already public metadata)
+    tags: r.tags || [],
+    folder: r.folder || "",
   }));
+
+function errShape(e) {
+  return {
+    name: e?.name || null,
+    message: e?.message || String(e),
+    http_code: e?.http_code || e?.status || null,
+    response_body: e?.response?.body || null, // <- Cloudinary puts useful text here
+    raw: (() => { try { return JSON.parse(JSON.stringify(e)); } catch { return String(e); } })(),
+  };
 }
 
 export const handler = async (event) => {
-  if (event.httpMethod === "OPTIONS") {
-    return { statusCode: 200, headers: CORS };
-  }
-  if (event.httpMethod !== "POST" && event.httpMethod !== "GET") {
-    return {
-      statusCode: 405,
-      headers: CORS,
-      body: JSON.stringify({ error: "Method not allowed" }),
-    };
+  if (event.httpMethod === "OPTIONS") return { statusCode: 200, headers: CORS };
+  if (!["POST", "GET"].includes(event.httpMethod)) {
+    return { statusCode: 405, headers: CORS, body: JSON.stringify({ error: "Method not allowed" }) };
   }
 
-  // Env
-  const {
-    CLOUDINARY_CLOUD_NAME,
-    CLOUDINARY_API_KEY,
-    CLOUDINARY_API_SECRET,
-  } = process.env || {};
+  const { CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET } = process.env || {};
   if (!CLOUDINARY_CLOUD_NAME || !CLOUDINARY_API_KEY || !CLOUDINARY_API_SECRET) {
     return {
       statusCode: 500,
       headers: CORS,
       body: JSON.stringify({
         error: "Missing Cloudinary env vars",
-        expect: [
-          "CLOUDINARY_CLOUD_NAME",
-          "CLOUDINARY_API_KEY",
-          "CLOUDINARY_API_SECRET",
-        ],
+        expect: ["CLOUDINARY_CLOUD_NAME", "CLOUDINARY_API_KEY", "CLOUDINARY_API_SECRET"],
       }),
     };
   }
 
-  // Parse inputs (body or ?tag=)
   const { tag: rawTag, max_results, next_cursor } = parseBodyOrQS(event);
   const tag = (rawTag || "").trim();
   const maxResults = Math.min(Number(max_results || 100), 500);
-
   if (!tag) {
     return {
       statusCode: 400,
       headers: CORS,
       body: JSON.stringify({
-        error: "Missing 'tag'. Send in JSON body {tag:\"...\"} or as ?tag=... ",
+        error: "Missing 'tag'. Send JSON { tag:\"...\" } or use ?tag=... in the URL.",
       }),
     };
   }
 
-  // Configure Cloudinary
   cloudinary.config({
     cloud_name: CLOUDINARY_CLOUD_NAME,
     api_key: CLOUDINARY_API_KEY,
@@ -94,9 +85,9 @@ export const handler = async (event) => {
     secure: true,
   });
 
-  // Try Search API
+  // Try Search API first (handles hyphens/spaces in tag with quotes)
   try {
-    const expr = `tags="${tag}"`; // quotes handle dashes/spaces
+    const expr = `tags="${tag}"`;
     const search = cloudinary.search
       .expression(expr)
       .with_field("tags")
@@ -119,7 +110,9 @@ export const handler = async (event) => {
       }),
     };
   } catch (err1) {
-    // Fall back to Admin API
+    console.error("[list-by-tag] Search API failed:", errShape(err1));
+
+    // Fallback to Admin API
     try {
       const r2 = await cloudinary.api.resources_by_tag(tag, {
         max_results: maxResults,
@@ -139,19 +132,17 @@ export const handler = async (event) => {
         }),
       };
     } catch (err2) {
-      // Send full diagnostics back
+      console.error("[list-by-tag] resources_by_tag failed:", errShape(err2));
       return {
         statusCode: 500,
         headers: CORS,
         body: JSON.stringify({
           error: "List failed",
           tag,
-          detail: {
-            search_error: String(err1?.message || err1),
-            admin_error: String(err2?.message || err2),
-          },
+          search_error: errShape(err1),
+          admin_error: errShape(err2),
           hint:
-            "Verify tag exists on your images (case-sensitive), cloud_name is correct, and API key/secret belong to that cloud.",
+            "Verify the exact tag (case-sensitive) exists on assets. Also confirm CLOUDINARY_CLOUD_NAME is the account that holds those assets. If Search API is restricted on your plan, the Admin fallback must succeed.",
         }),
       };
     }

@@ -1,10 +1,10 @@
 // src/pages/AdminUpload.jsx
 import React, { useEffect, useMemo, useState, useCallback } from "react";
 import { db } from "../lib/firebase";
-import { collection, getDocs } from "firebase/firestore";
+import { collection, getDocs, doc, setDoc, serverTimestamp } from "firebase/firestore";
 
 const CLOUD_NAME = "lamaphoto";
-const UPLOAD_PRESET = "lamaphoto_unsigned";
+const UPLOAD_PRESET = "lamaphoto_unsigned"; // make sure this preset has NO incoming transformations
 
 export default function AdminUpload() {
   const [mode, setMode] = useState("portfolio"); // "portfolio" | "client"
@@ -27,7 +27,7 @@ export default function AdminUpload() {
         if (list.length) setSelectedId(list[0].id);
       } catch (e) {
         console.error("[AdminUpload] Firestore galleries fetch failed:", e);
-        setMsg("Couldn’t load galleries (check network/rules). You can still upload to Portfolio.");
+        setMsg("Couldn’t load galleries. You can still upload to Portfolio.");
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -43,12 +43,12 @@ export default function AdminUpload() {
   const openWidget = useCallback(() => {
     if (!window.cloudinary) {
       setMsg("Upload widget not loaded yet. Try again in a second.");
-      console.warn("[AdminUpload] window.cloudinary is undefined. Is the script loading?");
+      console.warn("[AdminUpload] window.cloudinary is undefined.");
       return;
     }
 
     const isPortfolio = mode === "portfolio";
-    const tag = isPortfolio ? "portfolio" : selected?.tag;
+    const tag   = isPortfolio ? "portfolio" : selected?.tag;
     const folder = isPortfolio ? "portfolio" : "client-galleries";
 
     if (!isPortfolio && !tag) {
@@ -61,9 +61,9 @@ export default function AdminUpload() {
     const widget = window.cloudinary.createUploadWidget(
       {
         cloudName: CLOUD_NAME,
-        uploadPreset: UPLOAD_PRESET,  // unsigned preset with NO incoming transformations
+        uploadPreset: UPLOAD_PRESET,
         folder,
-        tags: [tag],
+        tags: [tag],                 // ← ensures tag is on the asset
         multiple: true,
         sources: ["local", "camera", "url", "google_drive", "dropbox"],
         clientAllowedFormats: ["jpg", "jpeg", "png", "webp"],
@@ -84,15 +84,39 @@ export default function AdminUpload() {
           },
         },
       },
-      (error, result) => {
+      async (error, result) => {
         if (error) {
           console.error("[AdminUpload] Upload error:", error);
           setMsg("Upload error — see console.");
           return;
         }
         if (result?.event === "success") {
+          const info = result.info; // Cloudinary asset info
           const where = isPortfolio ? "Portfolio" : (selected?.name || "Gallery");
-          setMsg(`✅ Uploaded to ${where}: ${result.info.original_filename}`);
+
+          // Write metadata only for client galleries so ClientGallery can read them.
+          try {
+            if (!isPortfolio && selected?.id) {
+              const imgCol = collection(db, `galleries/${selected.id}/images`);
+              const imgDoc = doc(imgCol);
+              await setDoc(imgDoc, {
+                public_id: info.public_id,            // e.g. client-galleries/abcd1234
+                format: info.format,                  // jpg/png/webp
+                bytes: info.bytes,
+                width: info.width,
+                height: info.height,
+                secure_url: info.secure_url,          // original delivery (no transforms)
+                original_filename: info.original_filename,
+                version: info.version,
+                tag,                                   // gallery tag
+                createdAt: serverTimestamp(),
+              });
+            }
+            setMsg(`✅ Uploaded to ${where}: ${info.original_filename}`);
+          } catch (e) {
+            console.error("[AdminUpload] Firestore write failed:", e);
+            setMsg("Uploaded to Cloudinary, but failed to save to Firestore.");
+          }
         }
       }
     );
@@ -104,9 +128,7 @@ export default function AdminUpload() {
     <section className="w-full py-16 md:py-24 bg-ivory">
       <div className="max-w-3xl mx-auto px-4">
         <h2 className="text-2xl md:text-3xl font-serif font-semibold text-charcoal">Admin Upload</h2>
-        <p className="text-charcoal/70 mt-1">
-          Upload to the public <strong>Portfolio</strong> or pick a <strong>Client Gallery</strong>.
-        </p>
+        <p className="text-charcoal/70 mt-1">Upload to the public <strong>Portfolio</strong> or pick a <strong>Client Gallery</strong>.</p>
 
         {/* Mode toggle */}
         <div className="mt-6 flex gap-4 items-center">
@@ -141,7 +163,7 @@ export default function AdminUpload() {
           </div>
         )}
 
-        {/* Upload button */}
+        {/* Upload */}
         <div className="mt-6">
           <button
             onClick={openWidget}
