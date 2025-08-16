@@ -1,26 +1,19 @@
 [build]
   command = "npm run build"
   publish = "dist"
-  # If your project lives in a subfolder, set base; otherwise remove this line:
-  # base = "photography-booking-app"
 
-  # ✅ Tell Netlify to use Node 18 during builds & functions
   [build.environment]
     NODE_VERSION = "18"
+    # EITHER allow-list the specific Firebase key:
+    # SECRETS_SCAN_SMART_DETECTION_OMIT_VALUES = '["AIzaSyXXXX...YOUR_KEY_HERE..."]'
+    # OR disable the scanner for this site:
+    # SECRETS_SCAN_SMART_DETECTION_ENABLED = "false"
 
-# Bundle functions with esbuild and include the Cloudinary SDK
 [functions]
   node_bundler = "esbuild"
   external_node_modules = ["cloudinary"]
 
-# SPA routing
 [[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200
-
-# (Optional) If you rely on /api/* → functions:
-# [[redirects]]
-#   from = "/api/*"
-#   to = "/.netlify/functions/:splat"
-#   status = 200
