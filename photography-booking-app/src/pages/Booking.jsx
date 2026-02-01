@@ -1,7 +1,8 @@
 // src/pages/Booking.jsx
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useEffect } from "react";
 import { checkAvailability, submitBooking } from "../lib/api";
-import { Helmet } from "react-helmet-async"
+import { Helmet } from "react-helmet-async";
+
 /* -------------------------------- Services -------------------------------- */
 const SERVICES = [
   {
@@ -9,33 +10,50 @@ const SERVICES = [
     name: "Events",
     duration: "2 hours",
     desc: "Concerts, celebrations, and gatherings",
+    icon: (
+      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+      </svg>
+    ),
   },
   {
     id: "branding",
     name: "Branding",
     duration: "60 min",
-    desc:
-      "For business owners and creatives who want photos that showcase their personality and work",
+    desc: "Professional photos for your business and personal brand",
+    icon: (
+      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
+      </svg>
+    ),
   },
   {
     id: "portraits",
     name: "Portraits + Milestones",
     duration: "45–60 min",
-    desc:
-      "Seniors, milestone, and personal portraits (casual or styled)",
+    desc: "Seniors, milestone, and personal portraits",
+    icon: (
+      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/>
+      </svg>
+    ),
   },
   {
     id: "couples",
     name: "Couples",
     duration: "60 min",
-    desc:
-      "For partners wanting to celebrate love and shared moments",
+    desc: "Celebrating love and shared moments",
+    icon: (
+      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"/>
+      </svg>
+    ),
   },
 ];
 
 /* ----------------------------- Time utilities ----------------------------- */
-const OPEN_MIN = 9 * 60 + 30;   // 09:30
-const CLOSE_MIN = 21 * 60 + 30; // 21:30
+const OPEN_MIN = 9 * 60 + 30;
+const CLOSE_MIN = 21 * 60 + 30;
 function buildTimes() {
   const out = [];
   for (let m = OPEN_MIN; m <= CLOSE_MIN; m += 30) {
@@ -54,41 +72,16 @@ function to12h(hhmm) {
 }
 function cls(...xs) { return xs.filter(Boolean).join(" "); }
 
-/* ----------------------------- Small UI helpers --------------------------- */
-function ChipBtn({ children, onClick }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="rounded-full border border-burgundy/30 px-3 py-1 text-xs font-medium text-charcoal/80 hover:bg-gold/20 hover:border-gold/60 transition-colors"
-    >
-      {children}
-    </button>
-  );
-}
-function SectionTitle({ children, sub }) {
-  return (
-    <div className="mb-2">
-      <h4 className="font-semibold text-burgundy">{children}</h4>
-      {sub && <p className="text-xs text-charcoal/70 mt-0.5">{sub}</p>}
-    </div>
-  );
-}
-
 /* --------------------------------- Page ----------------------------------- */
 export default function Booking() {
-
-  <Helmet>
-        <title>Lama Wafa | Raleigh, NC Photographer</title>
-        <meta
-          name="description"
-          content="Lama is a Palestinian photographer based in Raleigh, NC, specializing in events, milestones, and personal portraits." />
-        <link rel="canonical" href="https://lamawafa.com/" />
-      </Helmet>
-
   const [step, setStep] = useState(0);
+  const [headerVisible, setHeaderVisible] = useState(false);
 
-  // Selected service (price hidden in UI; 0 passed to API to satisfy validator)
+  useEffect(() => {
+    setHeaderVisible(true);
+  }, []);
+
+  // Selected service
   const [selected, setSelected] = useState({ ...SERVICES[0], price: 0 });
 
   // Date & time + availability
@@ -120,20 +113,6 @@ export default function Booking() {
     details.email.trim() &&
     details.phone.trim() &&
     details.location.trim();
-
-  // (Kept for future use if you add chips later; currently unused in UI)
-  const shootForSuggestions = useMemo(() => {
-    switch (selected.id) {
-      case "branding":
-        return ["Website refresh", "Social content", "Team headshots", "Product launch"];
-      case "events":
-        return ["Birthday", "Engagement party", "Corporate mixer", "Baby shower"];
-      case "couples":
-        return ["Anniversary", "Proposal", "Save-the-date", "Casual session"];
-      default:
-        return ["Senior portraits", "Personal portraits", "Creative concept", "Portfolio update"];
-    }
-  }, [selected.id]);
 
   /* ------------------------- Availability check -------------------------- */
   async function doCheck() {
@@ -213,7 +192,7 @@ export default function Booking() {
       setResult(res);
     } catch (e) {
       console.error(e);
-      alert(e.message || "We couldn’t submit your request. Please try again.");
+      alert(e.message || "We couldn't submit your request. Please try again.");
     } finally {
       setSubmitting(false);
     }
@@ -239,483 +218,588 @@ export default function Booking() {
     setErr("");
   }
 
+  const STEPS = ["Service", "Date & Time", "Details", "Review"];
+
   /* -------------------------------- Render -------------------------------- */
   return (
-    <section id="booking" className="w-full py-16 md:py-24 bg-cream">
-      <div className="max-w-7xl mx-auto px-4">
+    <>
+      <Helmet>
+        <title>Book a Session | Lama Wafa Photography</title>
+        <meta
+          name="description"
+          content="Book a photography session with Lama Wafa in Raleigh, NC."
+        />
+        <link rel="canonical" href="https://lamawafa.com/booking" />
+      </Helmet>
+
+      <div className="min-h-screen bg-cream">
         {/* Header */}
-        <div className="flex items-end justify-between gap-4 mb-6">
-          <div>
-            <h2 className="text-2xl md:text-3xl font-serif font-semibold text-burgundy">
-              Book a Session
-            </h2>
+        <section className="relative bg-burgundy overflow-hidden -mt-16 md:-mt-20 pt-24 md:pt-28 pb-12 md:pb-16">
+          {/* Background decoration */}
+          <div className="absolute inset-0 opacity-10">
+            <div className="absolute top-0 right-0 w-96 h-96 bg-gold rounded-full blur-3xl transform translate-x-1/2 -translate-y-1/2" />
+            <div className="absolute bottom-0 left-0 w-64 h-64 bg-gold rounded-full blur-3xl transform -translate-x-1/2 translate-y-1/2" />
           </div>
-          <SimpleStepper step={step} />
-        </div>
-
-        {/* Card */}
-        <div className="rounded-2xl border border-burgundy/20 bg-white/85 shadow-[0_10px_30px_rgba(0,0,0,0.08)] p-5 md:p-6 backdrop-blur-sm">
-          {/* Step 0: Service selection */}
-          {step === 0 && (
-            <div>
-              <h3 className="text-xl font-serif font-semibold text-burgundy">Choose a service</h3>
-              <p className="text-sm text-charcoal/70 mt-1">
-               
-              </p>
-
-              <div className="mt-6 grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {SERVICES.map((s) => {
-                  const active = s.id === selected.id;
-                  return (
-                    <button
-                      key={s.id}
-                      type="button"
-                      onClick={() => setSelected({ ...s, price: 0 })}
-                      className={cls(
-                        "text-left rounded-2xl border p-4 transition-all focus:outline-none focus:ring-2 focus:ring-gold",
-                        active
-                          ? "border-burgundy bg-burgundy/5 shadow"
-                          : "border-burgundy/20 hover:border-gold/60 hover:shadow"
-                      )}
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="text-lg font-semibold text-charcoal">{s.name}</div>
-                        <span
-                          className={cls(
-                            "text-[11px] font-semibold rounded-full px-2 py-0.5 ring-1",
-                            active
-                              ? "bg-wine text-white ring-wine"
-                              : "bg-gold/15 text-charcoal ring-gold/40"
-                          )}
-                        >
-                          {s.duration}
-                        </span>
-                      </div>
-
-                      {s.desc && (
-                        <p className="mt-2 text-sm text-charcoal/70">
-                          {s.desc}
-                        </p>
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-
-              <div className="mt-6 flex justify-end">
-                <button
-                  onClick={() => setStep(1)}
-                  disabled={!canNext0}
-                  className={cls(
-                    "rounded-full px-5 py-3 text-sm font-semibold shadow-soft transition-colors focus:outline-none focus:ring-2 focus:ring-gold",
-                    canNext0 ? "bg-wine text-white hover:bg-maroon" : "bg-burgundy/10 text-charcoal/50 cursor-not-allowed"
-                  )}
-                >
-                  Next →
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Step 1: Date & Time */}
-          {step === 1 && (
-            <div>
-              <h3 className="text-xl font-serif font-semibold text-burgundy">Pick date &amp; time</h3>
-              <p className="text-sm text-charcoal/70 mt-1">Sessions run between 9:30 AM and 9:30 PM.</p>
-
-              <div className="mt-4 grid md:grid-cols-3 gap-4">
-                <div>
-                  <label className="text-sm font-medium text-charcoal">Date</label>
-                  <input
-                    type="date"
-                    value={date}
-                    onChange={(e) => setDate(e.target.value)}
-                    className="mt-2 w-full rounded-xl border border-burgundy/20 focus:border-burgundy focus:ring-gold/40 px-3 py-2 bg-white"
-                  />
-                </div>
-
-                <div>
-                  <label className="text-sm font-medium text-charcoal">Time</label>
-                  <select
-                    value={time}
-                    onChange={(e) => setTime(e.target.value)}
-                    className="mt-2 w-full rounded-xl border border-burgundy/20 focus:border-burgundy focus:ring-gold/40 px-3 py-2 bg-white"
-                  >
-                    <option value="">— Select time —</option>
-                    {TIME_OPTS.map((t) => (
-                      <option key={t} value={t}>{to12h(t)}</option>
-                    ))}
-                  </select>
-                  {err && availability === false && <div className="text-xs text-wine mt-1">{err}</div>}
-                </div>
-
-                <div className="flex items-end">
-                  <button
-                    onClick={doCheck}
-                    disabled={!date || !time || checking}
-                    className={cls(
-                      "w-full rounded-full px-5 py-3 text-sm font-semibold shadow-soft transition-colors focus:outline-none focus:ring-2 focus:ring-gold",
-                      !date || !time || checking ? "bg-burgundy/10 text-charcoal/50 cursor-not-allowed" : "bg-wine text-white hover:bg-maroon"
-                    )}
-                  >
-                    {checking ? "Checking..." : "Check Availability"}
-                  </button>
-                </div>
-              </div>
-
-              {availability === true && <p className="mt-3 text-sm text-emerald-700">✅ Slot available. You can proceed.</p>}
-              {availability === false && <p className="mt-3 text-sm text-wine">❌ That time conflicts. Try a different one.</p>}
-
-              <div className="mt-6 flex justify-between">
-                <button className="text-sm underline text-charcoal/70 hover:text-burgundy" onClick={() => setStep(0)}>← Back</button>
-                <button
-                  onClick={() => setStep(2)}
-                  disabled={!canNext1}
-                  className={cls(
-                    "rounded-full px-5 py-3 text-sm font-semibold shadow-soft transition-colors focus:outline-none focus:ring-2 focus:ring-gold",
-                    canNext1 ? "bg-wine text-white hover:bg-maroon" : "bg-burgundy/10 text-charcoal/50 cursor-not-allowed"
-                  )}
-                >
-                  Next →
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Step 2: Details (Simplified) */}
-          {step === 2 && (
-            <div>
-              <h3 className="text-xl font-serif font-semibold text-burgundy">Your details</h3>
-
-              {/* Contact basics */}
-              <div className="mt-4 grid md:grid-cols-2 gap-4">
-                <div>
-                  <label className="text-sm font-medium text-charcoal">Full name</label>
-                  <input
-                    className="mt-2 w-full rounded-xl border border-burgundy/20 px-3 py-2 bg-white focus:border-burgundy focus:ring-gold/40"
-                    value={details.name}
-                    onChange={(e) => setDetails({ ...details, name: e.target.value })}
-                    placeholder="Your name"
-                  />
-                </div>
-                <div>
-                  <label className="text-sm font-medium text-charcoal">Email</label>
-                  <input
-                    className="mt-2 w-full rounded-xl border border-burgundy/20 px-3 py-2 bg-white focus:border-burgundy focus:ring-gold/40"
-                    value={details.email}
-                    onChange={(e) => setDetails({ ...details, email: e.target.value })}
-                    placeholder="you@example.com"
-                  />
-                </div>
-                <div>
-                  <label className="text-sm font-medium text-charcoal">Phone</label>
-                  <input
-                    className="mt-2 w-full rounded-xl border border-burgundy/20 px-3 py-2 bg-white focus:border-burgundy focus:ring-gold/40"
-                    value={details.phone}
-                    onChange={(e) => setDetails({ ...details, phone: e.target.value })}
-                    placeholder="(555) 123-4567"
-                  />
-                </div>
-                <div>
-                  <label className="text-sm font-medium text-charcoal">Preferred contact</label>
-                  <select
-                    className="mt-2 w-full rounded-xl border border-burgundy/20 px-3 py-2 bg-white focus:border-burgundy focus:ring-gold/40"
-                    value={details.contactPref}
-                    onChange={(e) => setDetails({ ...details, contactPref: e.target.value })}
-                  >
-                    <option value="">— Select —</option>
-                    <option>Email</option>
-                    <option>Text</option>
-                    <option>Call</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="text-sm font-medium text-charcoal">Best time to reach you</label>
-                  <input
-                    className="mt-2 w-full rounded-xl border border-burgundy/20 px-3 py-2 bg-white focus:border-burgundy focus:ring-gold/40"
-                    value={details.bestContactTime}
-                    onChange={(e) => setDetails({ ...details, bestContactTime: e.target.value })}
-                    placeholder="e.g., Weekdays after 5pm"
-                  />
-                </div>
-                <div>
-                  <label className="text-sm font-medium text-charcoal">Instagram (optional)</label>
-                  <input
-                    className="mt-2 w-full rounded-xl border border-burgundy/20 px-3 py-2 bg-white focus:border-burgundy focus:ring-gold/40"
-                    value={details.instagram}
-                    onChange={(e) => setDetails({ ...details, instagram: e.target.value })}
-                    placeholder="@yourhandle"
-                  />
-                </div>
-                <div className="md:col-span-2">
-                  <label className="text-sm font-medium text-charcoal">How did you hear about me?</label>
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {["Instagram", "TikTok", "Google", "Friend/Family", "Other"].map((opt) => (
-                      <ChipBtn key={opt} onClick={() => setDetails((d) => ({ ...d, howHeard: opt }))}>
-                        {opt}
-                      </ChipBtn>
-                    ))}
-                  </div>
-                  <input
-                    className="mt-2 w-full rounded-xl border border-burgundy/20 px-3 py-2 bg-white focus:border-burgundy focus:ring-gold/40"
-                    value={details.howHeard}
-                    onChange={(e) => setDetails({ ...details, howHeard: e.target.value })}
-                    placeholder="Tell me more (optional)"
-                  />
-                </div>
-              </div>
-
-              {/* Location & logistics */}
-              <div className="mt-8">
-                <SectionTitle sub="If unsure, you can leave these blank for now.">Location & logistics</SectionTitle>
-                <div className="grid md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="text-sm font-medium text-charcoal">Location</label>
-                    <select
-                      className="mt-2 w-full rounded-xl border border-burgundy/20 px-3 py-2 bg-white focus:border-burgundy focus:ring-gold/40"
-                      value={details.location}
-                      onChange={(e) => setDetails({ ...details, location: e.target.value })}
-                    >
-                      <option>Studio</option>
-                      <option>Client Location</option>
-                      <option>Outdoors</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="text-sm font-medium text-charcoal">Venue name (optional)</label>
-                    <input
-                      className="mt-2 w-full rounded-xl border border-burgundy/20 px-3 py-2 bg-white focus:border-burgundy focus:ring-gold/40"
-                      value={details.venueName}
-                      onChange={(e) => setDetails({ ...details, venueName: e.target.value })}
-                      placeholder="Venue, campus, park, etc."
-                    />
-                  </div>
-                  <div className="md:col-span-2">
-                    <label className="text-sm font-medium text-charcoal">Address (optional)</label>
-                    <input
-                      className="mt-2 w-full rounded-xl border border-burgundy/20 px-3 py-2 bg-white focus:border-burgundy focus:ring-gold/40"
-                      value={details.venueAddress}
-                      onChange={(e) => setDetails({ ...details, venueAddress: e.target.value })}
-                      placeholder="Street address"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-sm font-medium text-charcoal">City</label>
-                    <input
-                      className="mt-2 w-full rounded-xl border border-burgundy/20 px-3 py-2 bg-white focus:border-burgundy focus:ring-gold/40"
-                      value={details.city}
-                      onChange={(e) => setDetails({ ...details, city: e.target.value })}
-                    />
-                  </div>
-                  <div>
-                    <label className="text-sm font-medium text-charcoal">State</label>
-                    <input
-                      className="mt-2 w-full rounded-xl border border-burgundy/20 px-3 py-2 bg-white focus:border-burgundy focus:ring-gold/40"
-                      value={details.state}
-                      onChange={(e) => setDetails({ ...details, state: e.target.value })}
-                    />
-                  </div>
-                  <div>
-                    <label className="text-sm font-medium text-charcoal">Zip</label>
-                    <input
-                      className="mt-2 w-full rounded-xl border border-burgundy/20 px-3 py-2 bg-white focus:border-burgundy focus:ring-gold/40"
-                      value={details.zip}
-                      onChange={(e) => setDetails({ ...details, zip: e.target.value })}
-                    />
-                  </div>
-                  <div>
-                    <label className="text-sm font-medium text-charcoal">Indoor or Outdoor?</label>
-                    <select
-                      className="mt-2 w-full rounded-xl border border-burgundy/20 px-3 py-2 bg-white focus:border-burgundy focus:ring-gold/40"
-                      value={details.indoorOutdoor}
-                      onChange={(e) => setDetails({ ...details, indoorOutdoor: e.target.value })}
-                    >
-                      <option value="">— Select —</option>
-                      <option>Indoor</option>
-                      <option>Outdoor</option>
-                      <option>Both</option>
-                    </select>
-                  </div>
-                  <div className="md:col-span-2">
-                    <label className="text-sm font-medium text-charcoal">Rain/weather plan (optional)</label>
-                    <input
-                      className="mt-2 w-full rounded-xl border border-burgundy/20 px-3 py-2 bg-white focus:border-burgundy focus:ring-gold/40"
-                      value={details.rainPlan}
-                      onChange={(e) => setDetails({ ...details, rainPlan: e.target.value })}
-                      placeholder="Backup date, alternate indoor space, etc."
-                    />
-                  </div>
-                  <div className="md:col-span-2">
-                    <label className="text-sm font-medium text-charcoal">Accessibility needs (optional)</label>
-                    <textarea
-                      rows={2}
-                      className="mt-2 w-full rounded-xl border border-burgundy/20 px-3 py-2 bg-white focus:border-burgundy focus:ring-gold/40"
-                      value={details.accessibility}
-                      onChange={(e) => setDetails({ ...details, accessibility: e.target.value })}
-                      placeholder="Parking, mobility access, sensory considerations, etc."
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Creative inputs */}
-              <div className="mt-8">
-                <SectionTitle>Creative preferences</SectionTitle>
-                <div className="grid md:grid-cols-2 gap-4">
-                  <div className="md:col-span-2">
-                    <label className="text-sm font-medium text-charcoal">Must-have shots (optional)</label>
-                    <textarea
-                      rows={3}
-                      className="mt-2 w-full rounded-xl border border-burgundy/20 px-3 py-2 bg-white focus:border-burgundy focus:ring-gold/40"
-                      value={details.shotList}
-                      onChange={(e) => setDetails({ ...details, shotList: e.target.value })}
-                      placeholder="List key people/moments, product angles, groupings, etc."
-                    />
-                  </div>
-                  <div className="md:col-span-2">
-                    <label className="text-sm font-medium text-charcoal">Mood board / inspiration link</label>
-                    <input
-                      className="mt-2 w-full rounded-xl border border-burgundy/20 px-3 py-2 bg-white focus:border-burgundy focus:ring-gold/40"
-                      value={details.moodboard}
-                      onChange={(e) => setDetails({ ...details, moodboard: e.target.value })}
-                      placeholder="Pinterest/Drive/Notion link"
-                    />
-                  </div>
-                  <div className="md:col-span-2">
-                    <label className="text-sm font-medium text-charcoal">Anything else to share?</label>
-                    <textarea
-                      rows={3}
-                      className="mt-2 w-full rounded-xl border border-burgundy/20 px-3 py-2 bg-white focus:border-burgundy focus:ring-gold/40"
-                      value={details.notes}
-                      onChange={(e) => setDetails({ ...details, notes: e.target.value })}
-                      placeholder="Wardrobe ideas, sensitivities, specific requests, etc."
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <div className="mt-6 flex justify-between">
-                <button className="text-sm underline text-charcoal/70 hover:text-burgundy" onClick={() => setStep(1)}>
-                  ← Back
-                </button>
-                <button
-                  onClick={() => setStep(3)}
-                  disabled={!canNext2}
-                  className={cls(
-                    "rounded-full px-5 py-3 text-sm font-semibold shadow-soft transition-colors focus:outline-none focus:ring-2 focus:ring-gold",
-                    canNext2 ? "bg-wine text-white hover:bg-maroon" : "bg-burgundy/10 text-charcoal/50 cursor-not-allowed"
-                  )}
-                >
-                  Next →
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Step 3: Review & Confirm */}
-          {step === 3 && (
-            <div>
-              <h3 className="text-xl font-serif font-semibold text-burgundy">Review &amp; confirm</h3>
-
-              <div className="mt-4 grid md:grid-cols-2 gap-6">
-                <div className="p-4 rounded-xl border border-burgundy/20 bg-burgundy/5">
-                  <h4 className="font-semibold text-charcoal">Summary</h4>
-                  <ul className="mt-2 text-sm text-charcoal/80 space-y-1">
-                    <li>Service: <span className="font-medium text-burgundy">{selected.name}</span></li>
-                    <li>Date &amp; Time: <span className="font-medium">{date || "—"} {time ? to12h(time) : ""}</span></li>
-                    <li>Estimated duration: {selected.duration}</li>
-                    <li>Location: {details.location}</li>
-                  </ul>
-                </div>
-
-                <div className="p-4 rounded-xl border border-burgundy/20 bg-burgundy/5">
-                  <h4 className="font-semibold text-charcoal">Contact &amp; brief</h4>
-                  <ul className="mt-2 text-sm text-charcoal/80 space-y-1">
-                    <li>Name: {details.name || "—"}</li>
-                    <li>Email: {details.email || "—"}</li>
-                    <li>Phone: {details.phone || "—"}</li>
-                    {details.shootFor && <li>Shoot: {details.shootFor}</li>}
-                    {(details.locationNotes || details.venueName || details.venueAddress || details.city || details.state || details.zip) && (
-                      <li>Location notes will be included.</li>
-                    )}
-                    {(details.notes || details.shotList || details.moodboard || details.deadline || details.deliverables) && (
-                      <li>Creative preferences will be included.</li>
-                    )}
-                  </ul>
-                </div>
-              </div>
-
-              {!result ? (
-                <div className="mt-6 flex justify-between">
-                  <button className="text-sm underline text-charcoal/70 hover:text-burgundy" onClick={() => setStep(2)}>
-                    ← Back
-                  </button>
-                  <button
-                    onClick={confirm}
-                    disabled={submitting}
-                    className="rounded-full px-5 py-3 text-sm font-semibold shadow-soft bg-gold text-charcoal hover:bg-wine hover:text-white transition-colors focus:outline-none focus:ring-2 focus:ring-gold"
-                  >
-                    {submitting ? "Submitting..." : "Confirm Booking"}
-                  </button>
-                </div>
-              ) : (
-                <div className="mt-6 rounded-xl border border-burgundy/20 p-4 bg-burgundy/5">
-                  <p className="font-semibold text-charcoal">🎉 Booking requested!</p>
-                  <p className="text-sm text-charcoal/80 mt-1">
-                    Your reference: <span className="font-mono text-burgundy">{result.reference}</span>.
-                  </p>
-                  <div className="mt-4 flex gap-3">
-                    <button
-                      onClick={() => navigator.clipboard?.writeText(result.reference)}
-                      className="rounded-full px-4 py-2 text-xs font-semibold border border-burgundy/30 text-charcoal hover:bg-gold/20 hover:border-gold/60 transition-colors"
-                    >
-                      Copy reference
-                    </button>
-                    <button
-                      onClick={reset}
-                      className="rounded-full px-5 py-3 text-sm font-semibold bg-wine text-white hover:bg-maroon transition-colors shadow-soft focus:outline-none focus:ring-2 focus:ring-gold"
-                    >
-                      Book Another
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      </div>
-    </section>
-  );
-}
-
-/* -------------------------------- Stepper --------------------------------- */
-function SimpleStepper({ step }) {
-  const items = ["Service", "Date & Time", "Details", "Review"];
-  return (
-    <div className="hidden md:flex items-center gap-2 text-xs">
-      {items.map((label, i) => {
-        const done = step > i;
-        const active = step === i;
-        return (
-          <div key={label} className="flex items-center gap-2">
+          <div className="relative max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
             <div
               className={cls(
-                "w-6 h-6 rounded-full grid place-items-center font-semibold",
-                done ? "bg-gold text-charcoal"
-                     : active ? "bg-wine text-white"
-                              : "bg-burgundy/10 text-charcoal/60"
+                "transition-all duration-700",
+                headerVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4"
               )}
-              title={label}
             >
-              {i + 1}
+              <div className="w-12 h-0.5 bg-gold mb-6" />
+              <h1 className="font-serif text-3xl md:text-4xl lg:text-5xl font-light text-white">
+                Book Your Session
+              </h1>
+              <p className="mt-4 text-white/70 max-w-xl">
+                Choose your session type, pick a date, and let's create something beautiful together.
+              </p>
             </div>
-            <span className={cls("uppercase tracking-wide", active ? "text-burgundy font-semibold" : "text-charcoal/60")}>
-              {label}
-            </span>
-            {i < items.length - 1 && <span className="w-8 h-px bg-burgundy/15 mx-1" />}
+
+            {/* Progress Steps */}
+            <div className="mt-10">
+              <div className="flex items-center justify-between max-w-md">
+                {STEPS.map((label, i) => (
+                  <div key={label} className="flex items-center flex-1">
+                    <div className="flex flex-col items-center gap-2">
+                      <div
+                        className={cls(
+                          "w-10 h-10 rounded-full flex items-center justify-center text-sm font-medium transition-all",
+                          step > i
+                            ? "bg-gold text-charcoal"
+                            : step === i
+                            ? "bg-white text-burgundy"
+                            : "bg-white/20 text-white/60"
+                        )}
+                      >
+                        {step > i ? (
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"/>
+                          </svg>
+                        ) : (
+                          i + 1
+                        )}
+                      </div>
+                      <span
+                        className={cls(
+                          "text-xs font-medium transition-colors whitespace-nowrap",
+                          step >= i ? "text-white" : "text-white/40"
+                        )}
+                      >
+                        {label}
+                      </span>
+                    </div>
+                    {i < STEPS.length - 1 && (
+                      <div
+                        className={cls(
+                          "flex-1 h-px mx-3 transition-colors",
+                          step > i ? "bg-gold" : "bg-white/20"
+                        )}
+                      />
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
-        );
-      })}
-    </div>
+        </section>
+
+        {/* Form Content */}
+        <section className="py-12 md:py-16">
+          <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="bg-white border border-burgundy/10 shadow-soft overflow-hidden">
+              {/* Step 0: Service selection */}
+              {step === 0 && (
+                <div className="p-6 md:p-8">
+                  <h2 className="font-serif text-2xl font-light text-charcoal">
+                    Choose a service
+                  </h2>
+                  <p className="mt-1 text-sm text-charcoal/60">
+                    Select the type of session you're looking for.
+                  </p>
+
+                  <div className="mt-6 grid sm:grid-cols-2 gap-4">
+                    {SERVICES.map((s) => {
+                      const active = s.id === selected.id;
+                      return (
+                        <button
+                          key={s.id}
+                          type="button"
+                          onClick={() => setSelected({ ...s, price: 0 })}
+                          className={cls(
+                            "text-left p-5 rounded-xl border-2 transition-all duration-300",
+                            active
+                              ? "border-gold bg-gold/5 shadow-glow"
+                              : "border-burgundy/15 hover:border-gold/50 hover:bg-gold/5 hover:shadow-soft"
+                          )}
+                        >
+                          <div className="flex items-start gap-4">
+                            <div
+                              className={cls(
+                                "w-10 h-10 rounded-lg flex items-center justify-center transition-all duration-300",
+                                active ? "bg-gold text-charcoal shadow-glow" : "bg-burgundy/10 text-burgundy"
+                              )}
+                            >
+                              {s.icon}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center justify-between gap-2">
+                                <h3 className="font-medium text-charcoal">{s.name}</h3>
+                                <span className={cls(
+                                  "text-xs font-medium px-2 py-1 rounded-full transition-colors",
+                                  active ? "text-charcoal bg-gold/30" : "text-burgundy bg-burgundy/10"
+                                )}>
+                                  {s.duration}
+                                </span>
+                              </div>
+                              <p className="mt-1 text-sm text-charcoal/60">{s.desc}</p>
+                            </div>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  <div className="mt-8 flex justify-end">
+                    <button
+                      onClick={() => setStep(1)}
+                      disabled={!canNext0}
+                      className="btn btn-gold"
+                    >
+                      Continue
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7"/>
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Step 1: Date & Time */}
+              {step === 1 && (
+                <div className="p-6 md:p-8">
+                  <h2 className="font-serif text-2xl font-light text-charcoal">
+                    Pick date & time
+                  </h2>
+                  <p className="mt-1 text-sm text-charcoal/60">
+                    Sessions are available between 9:30 AM and 9:30 PM.
+                  </p>
+
+                  <div className="mt-6 grid md:grid-cols-2 gap-6">
+                    <div>
+                      <label className="block text-sm font-medium text-charcoal mb-2">
+                        Date
+                      </label>
+                      <input
+                        type="date"
+                        value={date}
+                        onChange={(e) => { setDate(e.target.value); setAvailability(null); }}
+                        className="input"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-charcoal mb-2">
+                        Time
+                      </label>
+                      <select
+                        value={time}
+                        onChange={(e) => { setTime(e.target.value); setAvailability(null); }}
+                        className="input"
+                      >
+                        <option value="">Select time</option>
+                        {TIME_OPTS.map((t) => (
+                          <option key={t} value={t}>{to12h(t)}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="mt-6">
+                    <button
+                      onClick={doCheck}
+                      disabled={!date || !time || checking}
+                      className={cls(
+                        "btn w-full sm:w-auto",
+                        !date || !time || checking
+                          ? "bg-burgundy/20 text-burgundy/50 cursor-not-allowed"
+                          : "btn-secondary"
+                      )}
+                    >
+                      {checking ? (
+                        <>
+                          <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/>
+                          </svg>
+                          Checking...
+                        </>
+                      ) : (
+                        "Check Availability"
+                      )}
+                    </button>
+                  </div>
+
+                  {availability === true && (
+                    <div className="mt-4 p-4 rounded-xl bg-emerald-50 border border-emerald-100 flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center">
+                        <svg className="w-5 h-5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"/>
+                        </svg>
+                      </div>
+                      <div>
+                        <p className="font-medium text-emerald-800">Time slot available</p>
+                        <p className="text-sm text-emerald-600">You can proceed with this date and time.</p>
+                      </div>
+                    </div>
+                  )}
+
+                  {availability === false && (
+                    <div className="mt-4 p-4 rounded-xl bg-red-50 border border-red-100 flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-full bg-red-100 flex items-center justify-center">
+                        <svg className="w-5 h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"/>
+                        </svg>
+                      </div>
+                      <div>
+                        <p className="font-medium text-red-800">Not available</p>
+                        <p className="text-sm text-red-600">{err || "Please try a different time."}</p>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="mt-8 flex justify-between">
+                    <button
+                      onClick={() => setStep(0)}
+                      className="btn btn-ghost"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7"/>
+                      </svg>
+                      Back
+                    </button>
+                    <button
+                      onClick={() => setStep(2)}
+                      disabled={!canNext1}
+                      className={cls(
+                        "btn",
+                        canNext1 ? "btn-primary" : "bg-burgundy/20 text-burgundy/50 cursor-not-allowed"
+                      )}
+                    >
+                      Continue
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7"/>
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Step 2: Details */}
+              {step === 2 && (
+                <div className="p-6 md:p-8">
+                  <h2 className="font-serif text-2xl font-light text-charcoal">
+                    Your details
+                  </h2>
+                  <p className="mt-1 text-sm text-charcoal/60">
+                    Tell me a bit about yourself and your session.
+                  </p>
+
+                  {/* Contact Info */}
+                  <div className="mt-8">
+                    <h3 className="text-sm font-semibold text-burgundy uppercase tracking-wider">
+                      Contact Information
+                    </h3>
+                    <div className="mt-4 grid md:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-charcoal mb-2">
+                          Full name <span className="text-red-500">*</span>
+                        </label>
+                        <input
+                          type="text"
+                          className="input"
+                          value={details.name}
+                          onChange={(e) => setDetails({ ...details, name: e.target.value })}
+                          placeholder="Your name"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-charcoal mb-2">
+                          Email <span className="text-red-500">*</span>
+                        </label>
+                        <input
+                          type="email"
+                          className="input"
+                          value={details.email}
+                          onChange={(e) => setDetails({ ...details, email: e.target.value })}
+                          placeholder="you@example.com"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-charcoal mb-2">
+                          Phone <span className="text-red-500">*</span>
+                        </label>
+                        <input
+                          type="tel"
+                          className="input"
+                          value={details.phone}
+                          onChange={(e) => setDetails({ ...details, phone: e.target.value })}
+                          placeholder="(555) 123-4567"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-charcoal mb-2">
+                          Preferred contact
+                        </label>
+                        <select
+                          className="input"
+                          value={details.contactPref}
+                          onChange={(e) => setDetails({ ...details, contactPref: e.target.value })}
+                        >
+                          <option value="">Select</option>
+                          <option>Email</option>
+                          <option>Text</option>
+                          <option>Call</option>
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Location */}
+                  <div className="mt-8">
+                    <h3 className="text-sm font-semibold text-burgundy uppercase tracking-wider">
+                      Location
+                    </h3>
+                    <div className="mt-4 grid md:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-charcoal mb-2">
+                          Location type <span className="text-red-500">*</span>
+                        </label>
+                        <select
+                          className="input"
+                          value={details.location}
+                          onChange={(e) => setDetails({ ...details, location: e.target.value })}
+                        >
+                          <option>Studio</option>
+                          <option>Client Location</option>
+                          <option>Outdoors</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-charcoal mb-2">
+                          Venue name
+                        </label>
+                        <input
+                          type="text"
+                          className="input"
+                          value={details.venueName}
+                          onChange={(e) => setDetails({ ...details, venueName: e.target.value })}
+                          placeholder="Venue, park, campus, etc."
+                        />
+                      </div>
+                      <div className="md:col-span-2">
+                        <label className="block text-sm font-medium text-charcoal mb-2">
+                          Address
+                        </label>
+                        <input
+                          type="text"
+                          className="input"
+                          value={details.venueAddress}
+                          onChange={(e) => setDetails({ ...details, venueAddress: e.target.value })}
+                          placeholder="Street address"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Additional Details */}
+                  <div className="mt-8">
+                    <h3 className="text-sm font-semibold text-burgundy uppercase tracking-wider">
+                      Additional Details
+                    </h3>
+                    <div className="mt-4 space-y-4">
+                      <div>
+                        <label className="block text-sm font-medium text-charcoal mb-2">
+                          How did you hear about me?
+                        </label>
+                        <div className="flex flex-wrap gap-2">
+                          {["Instagram", "TikTok", "Google", "Friend/Family", "Other"].map((opt) => (
+                            <button
+                              key={opt}
+                              type="button"
+                              onClick={() => setDetails((d) => ({ ...d, howHeard: opt }))}
+                              className={cls(
+                                "px-4 py-2 rounded-full text-sm font-medium transition-all",
+                                details.howHeard === opt
+                                  ? "bg-burgundy text-white"
+                                  : "bg-burgundy/10 text-burgundy hover:bg-burgundy/20"
+                              )}
+                            >
+                              {opt}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-charcoal mb-2">
+                          Anything else I should know?
+                        </label>
+                        <textarea
+                          rows={3}
+                          className="input"
+                          value={details.notes}
+                          onChange={(e) => setDetails({ ...details, notes: e.target.value })}
+                          placeholder="Special requests, ideas, or questions..."
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mt-8 flex justify-between">
+                    <button onClick={() => setStep(1)} className="btn btn-ghost">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7"/>
+                      </svg>
+                      Back
+                    </button>
+                    <button
+                      onClick={() => setStep(3)}
+                      disabled={!canNext2}
+                      className={cls(
+                        "btn",
+                        canNext2 ? "btn-primary" : "bg-burgundy/20 text-burgundy/50 cursor-not-allowed"
+                      )}
+                    >
+                      Review
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7"/>
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Step 3: Review & Confirm */}
+              {step === 3 && (
+                <div className="p-6 md:p-8">
+                  <h2 className="font-serif text-2xl font-light text-charcoal">
+                    Review & confirm
+                  </h2>
+                  <p className="mt-1 text-sm text-charcoal/60">
+                    Please review your booking details before confirming.
+                  </p>
+
+                  <div className="mt-6 space-y-4">
+                    {/* Session Summary */}
+                    <div className="p-5 rounded-xl bg-burgundy/5 border border-burgundy/15">
+                      <h3 className="text-sm font-semibold text-burgundy uppercase tracking-wider mb-4">
+                        Session Details
+                      </h3>
+                      <div className="space-y-3 text-sm">
+                        <div className="flex justify-between">
+                          <span className="text-charcoal/60">Service</span>
+                          <span className="font-medium text-charcoal">{selected.name}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-charcoal/60">Date</span>
+                          <span className="font-medium text-charcoal">{date}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-charcoal/60">Time</span>
+                          <span className="font-medium text-charcoal">{time ? to12h(time) : "—"}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-charcoal/60">Duration</span>
+                          <span className="font-medium text-charcoal">{selected.duration}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-charcoal/60">Location</span>
+                          <span className="font-medium text-charcoal">{details.location}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Contact Summary */}
+                    <div className="p-5 rounded-xl bg-burgundy/5 border border-burgundy/15">
+                      <h3 className="text-sm font-semibold text-burgundy uppercase tracking-wider mb-4">
+                        Contact Information
+                      </h3>
+                      <div className="space-y-3 text-sm">
+                        <div className="flex justify-between">
+                          <span className="text-charcoal/60">Name</span>
+                          <span className="font-medium text-charcoal">{details.name}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-charcoal/60">Email</span>
+                          <span className="font-medium text-charcoal">{details.email}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-charcoal/60">Phone</span>
+                          <span className="font-medium text-charcoal">{details.phone}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {!result ? (
+                    <div className="mt-8 flex justify-between">
+                      <button onClick={() => setStep(2)} className="btn btn-ghost">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7"/>
+                        </svg>
+                        Back
+                      </button>
+                      <button
+                        onClick={confirm}
+                        disabled={submitting}
+                        className="btn btn-primary"
+                      >
+                        {submitting ? (
+                          <>
+                            <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/>
+                            </svg>
+                            Submitting...
+                          </>
+                        ) : (
+                          "Confirm Booking"
+                        )}
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="mt-8 p-6 rounded-xl bg-emerald-50 border border-emerald-100 text-center">
+                      <div className="w-12 h-12 mx-auto rounded-full bg-emerald-100 flex items-center justify-center">
+                        <svg className="w-6 h-6 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"/>
+                        </svg>
+                      </div>
+                      <h3 className="mt-4 font-serif text-xl text-emerald-800">Booking requested!</h3>
+                      <p className="mt-2 text-sm text-emerald-700">
+                        Your reference code: <code className="font-mono font-bold">{result.reference}</code>
+                      </p>
+                      <p className="mt-1 text-sm text-emerald-600">
+                        I'll reach out soon to confirm your session.
+                      </p>
+                      <div className="mt-6 flex flex-wrap justify-center gap-3">
+                        <button
+                          onClick={() => navigator.clipboard?.writeText(result.reference)}
+                          className="btn btn-secondary text-sm"
+                        >
+                          Copy Reference
+                        </button>
+                        <button onClick={reset} className="btn btn-primary text-sm">
+                          Book Another Session
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </section>
+      </div>
+    </>
   );
 }

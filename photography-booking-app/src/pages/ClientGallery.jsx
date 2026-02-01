@@ -39,7 +39,8 @@ function SelectableGallery({ items, selected, onToggle, layout = "masonry" }) {
               src={img.secure_url}
               alt={img.original_filename || img.public_id}
               loading="lazy"
-              className="w-full h-auto object-cover transition-transform duration-300 group-hover:scale-[1.01]"
+              decoding="async"
+              className="w-full h-auto object-cover portfolio-img"
             />
 
             <div className="pointer-events-none absolute inset-x-0 top-0 h-20 bg-gradient-to-b from-black/30 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
@@ -90,7 +91,8 @@ function SelectableGallery({ items, selected, onToggle, layout = "masonry" }) {
               src={img.secure_url}
               alt={img.original_filename || img.public_id}
               loading="lazy"
-              className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.01]"
+              decoding="async"
+              className="h-full w-full object-cover portfolio-img"
             />
           </div>
 

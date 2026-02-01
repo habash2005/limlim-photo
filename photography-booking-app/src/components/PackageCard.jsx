@@ -33,8 +33,9 @@ export default function PackageCard({ p, selected, onSelect }) {
             <img
               src={p.image}
               alt=""
-              className="w-full aspect-[4/3] object-cover transition-transform duration-300 group-hover:scale-[1.01]"
+              className="w-full aspect-[4/3] object-cover portfolio-img"
               loading="lazy"
+              decoding="async"
             />
           </div>
         )}

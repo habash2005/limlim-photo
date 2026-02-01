@@ -14,7 +14,8 @@ function SelectableGallery({ items, selected, onToggle, layout = "square" }) {
                 src={img.secure_url}
                 alt={img.original_filename || img.public_id}
                 loading="lazy"
-                className="w-full h-auto object-cover transition-transform duration-200 group-hover:scale-[1.01]"
+                decoding="async"
+                className="w-full h-auto object-cover portfolio-img"
               />
   
               {/* overlay checkbox */}
@@ -42,7 +43,8 @@ function SelectableGallery({ items, selected, onToggle, layout = "square" }) {
                 src={img.secure_url}
                 alt={img.original_filename || img.public_id}
                 loading="lazy"
-                className="h-full w-full object-cover transition-transform duration-200 hover:scale-[1.01]"
+                decoding="async"
+                className="h-full w-full object-cover portfolio-img"
               />
             </div>
   
