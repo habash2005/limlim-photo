@@ -135,7 +135,7 @@ export default function ClientGallery() {
         <title>Lama Wafa | Raleigh, NC Photographer</title>
         <meta
           name="description"
-          content="Lama is a Palestinian photographer based in Raleigh, NC, specializing in events, milestones, and personal portraits." />
+          content="Lama is a photographer based in Raleigh, NC, specializing in events, milestones, and personal portraits." />
         <link rel="canonical" href="https://lamawafa.com/" />
       </Helmet>
 

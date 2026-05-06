@@ -7,7 +7,7 @@
   --color-burgundy: #4A0E1A;
   --color-maroon: #6B1224;
   --color-wine: #821829;
-  --color-gold: #D4AF37;
+  --color-gold: #46543B;
   --color-cream: #FFF8F0;
   --color-charcoal: #333333;
   --border: rgba(74,14,26,0.15);
@@ -45,7 +45,7 @@
   }
 
   a:hover {
-    text-decoration-color: #D4AF37;
+    text-decoration-color: #46543B;
   }
 
   *:focus-visible {
@@ -78,11 +78,11 @@
 
   /* Premium gold button */
   .btn-gold {
-    background: linear-gradient(135deg, #D4AF37 0%, #C9A227 100%);
+    background: linear-gradient(135deg, #46543B 0%, #2E3826 100%);
     @apply text-charcoal font-semibold shadow-glow;
   }
   .btn-gold:hover {
-    background: linear-gradient(135deg, #E5C048 0%, #D4AF37 100%);
+    background: linear-gradient(135deg, #5A6E4A 0%, #46543B 100%);
     @apply -translate-y-1 shadow-glow-lg;
   }
 
@@ -262,7 +262,7 @@
   /* Gradient text */
   .text-gradient {
     @apply bg-clip-text text-transparent;
-    background-image: linear-gradient(135deg, #D4AF37 0%, #E5C048 50%, #D4AF37 100%);
+    background-image: linear-gradient(135deg, #46543B 0%, #5A6E4A 50%, #46543B 100%);
   }
 
   /* Decorative line */

@@ -1,5 +1,5 @@
 // src/main.jsx
-import React from "react";
+import React, { lazy, Suspense } from "react";
 import { createRoot } from "react-dom/client";
 import {
   createBrowserRouter,
@@ -10,17 +10,31 @@ import "./index.css";
 
 import App from "./App";
 import Home from "./pages/Home";
-import Portfolio from "./pages/Portfolio";
-import Booking from "./pages/Booking";
-import FAQ from "./pages/FAQ";
-import ClientGallery from "./pages/ClientGallery";
-import ClientPortal from "./pages/ClientPortal";
 
-// Admin / protected
-import AdminLogin from "./pages/AdminLogin";
-import AdminDashboard from "./pages/AdminDashboard";
-import AdminBookings from "./pages/AdminBookings";
+// Lazy-loaded routes — keeps the public homepage chunk small.
+const Portfolio = lazy(() => import("./pages/Portfolio"));
+const Booking = lazy(() => import("./pages/Booking"));
+const FAQ = lazy(() => import("./pages/FAQ"));
+const ClientGallery = lazy(() => import("./pages/ClientGallery"));
+const ClientPortal = lazy(() => import("./pages/ClientPortal"));
+const AdminLogin = lazy(() => import("./pages/AdminLogin"));
+const AdminDashboard = lazy(() => import("./pages/AdminDashboard"));
+const AdminBookings = lazy(() => import("./pages/AdminBookings"));
+const AdminAlbumEditor = lazy(() => import("./pages/AdminAlbumEditor"));
+
 import ProtectedRoute from "./components/ProtectedRoute";
+
+function PageFallback() {
+  return (
+    <div className="w-full min-h-[40vh] grid place-items-center text-charcoal/60 font-serif italic">
+      Loading…
+    </div>
+  );
+}
+
+function withSuspense(node) {
+  return <Suspense fallback={<PageFallback />}>{node}</Suspense>;
+}
 
 const router = createBrowserRouter([
   {
@@ -29,23 +43,23 @@ const router = createBrowserRouter([
     children: [
       // Public
       { index: true, element: <Home /> },
-      { path: "portfolio", element: <Portfolio /> },
-      { path: "booking", element: <Booking /> },
-      { path: "faq", element: <FAQ /> },
+      { path: "portfolio", element: withSuspense(<Portfolio />) },
+      { path: "booking", element: withSuspense(<Booking />) },
+      { path: "faq", element: withSuspense(<FAQ />) },
 
       // Clients
-      { path: "portal", element: <ClientPortal /> },   // client portal
-      { path: "client", element: <ClientGallery /> },  // legacy gallery (optional)
+      { path: "portal", element: withSuspense(<ClientPortal />) },
+      { path: "client", element: withSuspense(<ClientGallery />) },
 
       // Auth
-      { path: "admin-login", element: <AdminLogin /> },
+      { path: "admin-login", element: withSuspense(<AdminLogin />) },
 
       // Admin
       {
         path: "admin",
         element: (
           <ProtectedRoute>
-            <AdminDashboard />
+            {withSuspense(<AdminDashboard />)}
           </ProtectedRoute>
         ),
       },
@@ -53,7 +67,15 @@ const router = createBrowserRouter([
         path: "admin/bookings",
         element: (
           <ProtectedRoute>
-            <AdminBookings />
+            {withSuspense(<AdminBookings />)}
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: "admin/album/:bookingId",
+        element: (
+          <ProtectedRoute>
+            {withSuspense(<AdminAlbumEditor />)}
           </ProtectedRoute>
         ),
       },

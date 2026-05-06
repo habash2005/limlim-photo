@@ -1,0 +1,59 @@
+/* Album book — visuals that Tailwind can't express cleanly */
+
+/* Subtle paper grain on the cream page surface */
+.album-page-texture {
+  background-image:
+    repeating-linear-gradient(
+      135deg,
+      rgba(74, 14, 26, 0.018) 0 1px,
+      transparent 1px 3px
+    ),
+    repeating-linear-gradient(
+      45deg,
+      rgba(70, 84, 59, 0.015) 0 1px,
+      transparent 1px 4px
+    );
+}
+
+/* Spine shadow on the binding edge of a page (left page → right edge, right page → left edge) */
+.album-spine-shadow-right {
+  box-shadow: inset -12px 0 24px -8px rgba(0, 0, 0, 0.28);
+}
+.album-spine-shadow-left {
+  box-shadow: inset 12px 0 24px -8px rgba(0, 0, 0, 0.28);
+}
+
+/* Hardcover leather grain on top of the radial gradient */
+.album-leather-grain {
+  background-image:
+    radial-gradient(ellipse at 30% 20%, #6B1224 0%, #4A0E1A 55%, #2A0610 100%),
+    repeating-linear-gradient(
+      0deg,
+      rgba(0, 0, 0, 0.05) 0 2px,
+      transparent 2px 4px
+    );
+  background-blend-mode: multiply;
+}
+
+/* Faux olive-foil emboss on cover text */
+.album-gold-foil {
+  color: #46543B;
+  text-shadow:
+    0 1px 0 rgba(0, 0, 0, 0.55),
+    0 -1px 0 rgba(232, 228, 200, 0.18);
+}
+
+/* Center the StPageFlip stage and remove its default white border halo */
+.album-stage .stf__parent {
+  margin: 0 auto;
+}
+.album-stage .stf__block {
+  background: transparent;
+}
+
+/* Reduced-motion: instant page swap */
+@media (prefers-reduced-motion: reduce) {
+  .album-stage .stf__item {
+    transition: none !important;
+  }
+}

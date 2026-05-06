@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "rules:deploy": "firebase deploy --only firestore:rules",
+    "rules:status": "firebase firestore:rules"
   },
   "dependencies": {
     "archiver": "^6.0.1",
@@ -14,15 +16,19 @@
     "fflate": "^0.8.2",
     "file-saver": "^2.0.5",
     "firebase": "^12.1.0",
+    "framer-motion": "^12.38.0",
     "jszip": "^3.10.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "react-easy-crop": "^5.5.7",
     "react-helmet-async": "^2.0.5",
+    "react-pageflip": "^2.0.3",
     "react-router-dom": "^6.26.2"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.7.0",
     "autoprefixer": "^10.4.21",
+    "firebase-tools": "^15.16.0",
     "netlify-cli": "^23.1.4",
     "postcss": "^8.5.6",
     "tailwindcss": "^3.4.17",

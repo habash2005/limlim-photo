@@ -1,5 +1,6 @@
 // src/pages/AdminDashboard.jsx
 import React, { useEffect, useState, Suspense, useMemo } from "react";
+import { Link } from "react-router-dom";
 import { auth, db } from "../lib/firebase";
 import { signOut } from "firebase/auth";
 import {
@@ -349,6 +350,13 @@ export default function AdminDashboard() {
                             </td>
                             <td className="px-4 py-3">
                               <div className="flex items-center justify-end gap-1">
+                                <Link
+                                  to={`/admin/album/${b.id}`}
+                                  title="Edit Album Layout"
+                                  className="inline-flex items-center justify-center px-2.5 py-1 rounded-full text-[11px] font-semibold bg-burgundy text-cream hover:bg-olive transition-colors"
+                                >
+                                  Album
+                                </Link>
                                 <ActionBtn
                                   onClick={() => changeStatus(b, "confirmed")}
                                   disabled={savingStatus[b.id]}
@@ -430,6 +438,7 @@ export default function AdminDashboard() {
                       <th className="px-4 py-3 text-left text-xs font-semibold text-charcoal/70 uppercase tracking-wider">Email</th>
                       <th className="px-4 py-3 text-left text-xs font-semibold text-charcoal/70 uppercase tracking-wider">When</th>
                       <th className="px-4 py-3 text-left text-xs font-semibold text-charcoal/70 uppercase tracking-wider">Status</th>
+                      <th className="px-4 py-3 text-right text-xs font-semibold text-charcoal/70 uppercase tracking-wider">Album</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-burgundy/10">
@@ -443,6 +452,14 @@ export default function AdminDashboard() {
                         <td className="px-4 py-3 text-charcoal/70">{r.when}</td>
                         <td className="px-4 py-3">
                           <StatusPill status={r.status} />
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          <Link
+                            to={`/admin/album/${r.id}`}
+                            className="inline-flex items-center justify-center px-3 py-1 rounded-full text-[11px] font-semibold bg-burgundy text-cream hover:bg-olive transition-colors"
+                          >
+                            Edit album
+                          </Link>
                         </td>
                       </tr>
                     ))}

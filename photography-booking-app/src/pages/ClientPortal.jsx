@@ -1,12 +1,13 @@
 // src/pages/ClientPortal.jsx
 import React, { useEffect, useMemo, useState } from "react";
 import { db } from "../lib/firebase";
-import { collection, getDocs, limit, query, where } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, limit, query, where } from "firebase/firestore";
 import JSZip from "jszip";
 import { saveAs } from "file-saver";
 import { getStorage, ref as sref, getBlob } from "firebase/storage";
 import { Helmet } from "react-helmet-async";
 import Lightbox from "../components/Lightbox";
+import AlbumViewer from "../components/album/AlbumViewer";
 
 const storage = getStorage();
 
@@ -77,6 +78,7 @@ export default function ClientPortal() {
   const [zipping, setZipping] = useState(false);
   const [zipProgress, setZipProgress] = useState(0);
   const [lightboxIndex, setLightboxIndex] = useState(null);
+  const [layoutDoc, setLayoutDoc] = useState(null);
 
   const someChecked = images.some((img) => !!selected[img.public_id]);
   const allChecked = images.length > 0 && images.every((img) => !!selected[img.public_id]);
@@ -119,7 +121,12 @@ export default function ClientPortal() {
       setBooking(bdata);
       localStorage.setItem("clientRef", ref);
 
-      const imgsSnap = await getDocs(collection(db, `bookings/${bdoc.id}/images`));
+      // Fetch images and album layout doc in parallel
+      const [imgsSnap, layoutSnap] = await Promise.all([
+        getDocs(collection(db, `bookings/${bdoc.id}/images`)),
+        getDoc(doc(db, `bookings/${bdoc.id}/albumLayout/main`)).catch(() => null),
+      ]);
+
       const imgs = imgsSnap.docs.map((d) => d.data());
       imgs.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
       setImages(imgs);
@@ -127,6 +134,8 @@ export default function ClientPortal() {
       const pre = {};
       imgs.forEach((img) => (pre[img.public_id] = true));
       setSelected(pre);
+
+      setLayoutDoc(layoutSnap && layoutSnap.exists() ? layoutSnap.data() : null);
     } catch (e) {
       console.error(e);
       setErr("Something went wrong. Please try again.");
@@ -144,6 +153,7 @@ export default function ClientPortal() {
     setErr("");
     setZipping(false);
     setZipProgress(0);
+    setLayoutDoc(null);
   }
 
   async function zipAndDownload(files, outName) {
@@ -382,7 +392,21 @@ export default function ClientPortal() {
                   </div>
                 )}
 
-                {/* Gallery Grid */}
+                {/* Album Viewer (custom layout, if photographer built one) */}
+                {images.length > 0 && layoutDoc?.pages?.length > 0 && (
+                  <div className="-mx-4 sm:-mx-6 lg:-mx-8 mb-12">
+                    <AlbumViewer
+                      items={images}
+                      layoutDoc={layoutDoc}
+                      selected={selected}
+                      onToggleOne={toggleOne}
+                      clientName={clientName}
+                      subtitle={whenText}
+                    />
+                  </div>
+                )}
+
+                {/* Gallery Grid (standard selection view) */}
                 {images.length > 0 ? (
                   <div className="columns-1 sm:columns-2 lg:columns-3 xl:columns-4 gap-4">
                     {images.map((img) => (

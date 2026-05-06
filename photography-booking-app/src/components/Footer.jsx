@@ -19,7 +19,13 @@ export default function Footer() {
         <div className="grid grid-cols-1 md:grid-cols-12 gap-12 md:gap-8">
           {/* Brand Section */}
           <div className="md:col-span-5">
-            <Link to="/" className="inline-block">
+            <Link to="/" className="inline-flex items-center gap-3">
+              <img
+                src="/lama-logo.png"
+                alt="Lama Wafa"
+                className="h-12 w-12 object-contain brightness-0 invert opacity-90"
+                draggable="false"
+              />
               <span className="font-serif text-2xl font-light tracking-tight text-white">
                 Lama Wafa
               </span>

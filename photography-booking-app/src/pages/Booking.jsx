@@ -4,11 +4,13 @@ import { checkAvailability, submitBooking } from "../lib/api";
 import { Helmet } from "react-helmet-async";
 
 /* -------------------------------- Services -------------------------------- */
+// `startingAt` is a display-only placeholder — edit the values to match your real rates.
 const SERVICES = [
   {
     id: "events",
     name: "Events",
     duration: "2 hours",
+    startingAt: "$300",
     desc: "Concerts, celebrations, and gatherings",
     icon: (
       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -20,6 +22,7 @@ const SERVICES = [
     id: "branding",
     name: "Branding",
     duration: "60 min",
+    startingAt: "$250",
     desc: "Professional photos for your business and personal brand",
     icon: (
       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -31,6 +34,7 @@ const SERVICES = [
     id: "portraits",
     name: "Portraits + Milestones",
     duration: "45–60 min",
+    startingAt: "$120",
     desc: "Seniors, milestone, and personal portraits",
     icon: (
       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -42,6 +46,7 @@ const SERVICES = [
     id: "couples",
     name: "Couples",
     duration: "60 min",
+    startingAt: "$130",
     desc: "Celebrating love and shared moments",
     icon: (
       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -352,6 +357,12 @@ export default function Booking() {
                                   {s.duration}
                                 </span>
                               </div>
+                              {s.startingAt && (
+                                <div className="mt-1 text-xs">
+                                  <span className="uppercase tracking-[0.18em] text-charcoal/55">Starts at </span>
+                                  <span className="font-serif text-base font-semibold text-burgundy">{s.startingAt}</span>
+                                </div>
+                              )}
                               <p className="mt-1 text-sm text-charcoal/60">{s.desc}</p>
                             </div>
                           </div>

@@ -1,5 +1,6 @@
 // src/pages/AdminBookings.jsx
 import React, { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { onAuthStateChanged } from "firebase/auth";
 import { auth, db } from "../lib/firebase";
 import {
@@ -224,6 +225,7 @@ export default function AdminBookings() {
               <th className="px-4 py-3 text-left">Package</th>
               <th className="px-4 py-3 text-left">Status</th>
               <th className="px-4 py-3 text-left w-56">Change</th>
+              <th className="px-4 py-3 text-left w-32">Album</th>
             </tr>
           </thead>
           <tbody>
@@ -275,7 +277,7 @@ export default function AdminBookings() {
                           "rounded-full px-3 py-2 text-xs font-semibold",
                           !isAdmin || savingRow
                             ? "bg-blush text-charcoal/50"
-                            : "bg-rose text-ivory hover:bg-gold hover:text-charcoal"
+                            : "bg-olive text-cream hover:bg-burgundy"
                         )}
                         title="Advance to next status"
                       >
@@ -283,13 +285,21 @@ export default function AdminBookings() {
                       </button>
                     </div>
                   </td>
+                  <td className="px-4 py-3">
+                    <Link
+                      to={`/admin/album/${b.id}`}
+                      className="inline-block rounded-full px-3 py-2 text-xs font-semibold bg-burgundy text-cream hover:bg-olive transition-colors"
+                    >
+                      Edit album
+                    </Link>
+                  </td>
                 </tr>
               );
             })}
 
             {!loading && filtered.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-4 py-6 text-center text-charcoal/60">
+                <td colSpan={7} className="px-4 py-6 text-center text-charcoal/60">
                   No bookings to show.
                 </td>
               </tr>

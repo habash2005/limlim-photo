@@ -1,18 +1,25 @@
 [build]
-  command = "npm run build"
+  command = "npm ci && npm run build"
   publish = "dist"
-  functions = "netlify/functions"
 
+[functions]
+  directory = "netlify/functions"
+  node_bundler = "esbuild"
+
+# SPA fallback (safe to keep; required if you switch off hash routing)
 [[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200
 
-# Optional: nice alias
+# Friendly alias to call your functions from the app
 [[redirects]]
   from = "/api/*"
   to = "/.netlify/functions/:splat"
   status = 200
 
+# Optional: pin Node (match your local)
 [build.environment]
-SECRETS_SCAN_SMART_DETECTION_ENABLED = "false"
+  NODE_VERSION = "20"
+  # Prefer this over disabling scanning:
+  # SECRETS_SCAN_SMART_DETECTION_OMIT_VALUES = "AIza...yourFirebaseKey..."

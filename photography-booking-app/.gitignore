@@ -1,14 +1,9 @@
 # Dependencies
-node_modules
-**/node_modules
+node_modules/
 
 # Build output
-dist
-**/dist
-build
-
-# Local Netlify folder
-.netlify
+dist/
+build/
 
 # Local env / secrets
 .env
@@ -28,9 +23,6 @@ yarn-debug.log*
 .firebase/
 firebase-debug.log
 firestore-debug.log
-
-# Stale nested copy of an old repo experiment — keep out of the deploy
-/limlim-photo/
 
 # Misc
 *.tsbuildinfo

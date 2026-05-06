@@ -41,7 +41,7 @@ export const db = initializeFirestore(app, {
 // Auth
 export const auth = getAuth(app);
 
-// 🔴 Force the bucket explicitly so we never fall back to appspot:
+// Storage — explicit bucket so we never fall back to appspot
 export const storage = getStorage(app, "gs://limlim-32e6a.firebasestorage.app");
 
 isSupported().then((ok) => ok && getAnalytics(app));

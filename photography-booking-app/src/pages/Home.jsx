@@ -196,7 +196,7 @@ export default function Home() {
             </h2>
             <div className="mt-6 space-y-4 text-charcoal/70 leading-relaxed max-w-2xl mx-auto">
               <p>
-                I'm a Palestinian photographer based in Raleigh, NC, with a passion for
+                I'm a photographer based in Raleigh, NC, with a passion for
                 capturing authentic moments that tell your unique story.
               </p>
               <p>

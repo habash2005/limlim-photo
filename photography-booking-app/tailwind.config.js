@@ -7,11 +7,15 @@ module.exports = {
   theme: {
     extend: {
       colors: {
-        // Original burgundy/gold palette
+        // Burgundy + olive palette (olive matches the logo ink exactly).
         burgundy: "#4A0E1A",
         maroon: "#6B1224",
         wine: "#821829",
-        gold: "#D4AF37",
+        // `gold` is the legacy class name — value is now olive (#46543B,
+        // sampled from the Lama Wafa logo) so existing utilities like
+        // `bg-gold` / `text-gold` resolve to the new brand accent.
+        gold: "#46543B",
+        olive: "#46543B",
         blush: "#FADADD",
         rose: "#F4A6A6",
         ivory: "#FFF8F0",
@@ -19,7 +23,8 @@ module.exports = {
         charcoal: "#333333",
         // Translucent tokens
         burgundy50: "rgba(74,14,26,0.5)",
-        gold10: "rgba(212,175,55,0.10)",
+        gold10: "rgba(70,84,59,0.10)",
+        olive10: "rgba(70,84,59,0.10)",
       },
       fontFamily: {
         sans: ['"Poppins"', 'system-ui', 'sans-serif'],
@@ -29,8 +34,8 @@ module.exports = {
         soft: "0 6px 24px rgba(74,14,26,0.12)",
         medium: "0 8px 30px rgba(74,14,26,0.15)",
         elevated: "0 20px 50px rgba(74,14,26,0.2)",
-        glow: "0 0 30px rgba(212,175,55,0.25)",
-        "glow-lg": "0 0 50px rgba(212,175,55,0.35)",
+        glow: "0 0 30px rgba(70,84,59,0.30)",
+        "glow-lg": "0 0 50px rgba(70,84,59,0.40)",
       },
       animation: {
         'fade-in': 'fadeIn 0.6s ease-out forwards',

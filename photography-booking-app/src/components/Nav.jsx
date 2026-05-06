@@ -33,7 +33,6 @@ export default function Nav() {
     { to: "/booking", label: "Book" },
     { to: "/portal", label: "Client Portal" },
     { to: "/faq", label: "FAQ" },
-    { to: "/admin", label: "Admin" },
   ];
 
   // Determine nav style based on scroll and page
@@ -54,20 +53,18 @@ export default function Nav() {
             {/* Logo */}
             <Link
               to="/"
-              className="group flex items-center gap-2"
+              className="group flex items-center gap-2.5"
               aria-label="Go to home"
             >
-              <span className={cls(
-                "relative inline-flex h-8 w-8 items-center justify-center rounded-md shadow ring-1",
-                isTransparent
-                  ? "bg-white/10 ring-white/20"
-                  : "bg-white ring-burgundy/20"
-              )}>
-                <span className={cls(
-                  "h-1.5 w-1.5 rounded-full",
-                  isTransparent ? "bg-gold" : "bg-rose"
-                )} />
-              </span>
+              <img
+                src="/lama-logo.png"
+                alt="Lama Wafa"
+                className={cls(
+                  "h-9 w-9 md:h-10 md:w-10 object-contain transition-all",
+                  isTransparent ? "drop-shadow-[0_2px_8px_rgba(0,0,0,0.3)]" : ""
+                )}
+                draggable="false"
+              />
               <span className={cls(
                 "font-serif text-lg md:text-xl font-semibold tracking-tight transition-colors",
                 isTransparent ? "text-white" : "text-charcoal"
