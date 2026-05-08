@@ -1,10 +1,8 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { db } from "../lib/firebase";
 import { collection, getDocs, limit, query, where } from "firebase/firestore";
 
-import JSZip from "jszip";
-import { saveAs } from "file-saver";
-
+import { streamZipDownload } from "../lib/zipDownload";
 
 import { Helmet } from "react-helmet-async"
 
@@ -151,6 +149,7 @@ export default function ClientGallery() {
   const allChecked  = images.length > 0 && images.every((img) => !!selected[img.public_id]);
   const [zipping, setZipping] = useState(false);
   const [zipProgress, setZipProgress] = useState(0);
+  const abortRef = useRef(null);
 
   const toggleOne = (pid) => setSelected((s) => ({ ...s, [pid]: !s[pid] }));
   const toggleAll = (checked) => {
@@ -203,6 +202,10 @@ export default function ClientGallery() {
   }
 
   function reset() {
+    if (abortRef.current) {
+      try { abortRef.current.abort(); } catch (_) {}
+      abortRef.current = null;
+    }
     setCode("");
     setBooking(null);
     setImages([]);
@@ -212,49 +215,49 @@ export default function ClientGallery() {
     setErr("");
   }
 
-  // Zip using saved signed URLs
+  function cancelZip() {
+    if (abortRef.current) {
+      try { abortRef.current.abort(); } catch (_) {}
+    }
+  }
+
+  // Stream files into a zip (no in-memory ceiling, originals preserved
+  // bit-for-bit). Sink is showSaveFilePicker on Chromium/recent Firefox,
+  // falls back to StreamSaver SW on Safari/mobile, blob fallback as last
+  // resort. See src/lib/zipDownload.js.
   async function zipAndDownload(files, outName) {
     if (!files.length) {
       alert("No files selected");
       return;
     }
-
-    const TOTAL_LIMIT_MB = 500;
-    let approx = 0;
-    for (const f of files) approx += (f.bytes || 5_000_000);
-    if (approx / (1024 * 1024) > TOTAL_LIMIT_MB) {
-      alert(`Too many or too large files (>${TOTAL_LIMIT_MB}MB). Try fewer at once.`);
-      return;
-    }
-
+    const controller = new AbortController();
+    abortRef.current = controller;
     setZipping(true);
     setZipProgress(0);
     try {
-      const zip = new JSZip();
-
-      for (let i = 0; i < files.length; i++) {
-        const img = files[i];
-        const url = img.secure_url;
-        if (!url) continue;
-
-        const res = await fetch(url);
-        if (!res.ok) throw new Error(`Download failed: ${res.status}`);
-        const blob = await res.blob();
-
-        zip.file(fileNameFrom(img), blob, { compression: "STORE" });
-        setZipProgress(Math.round(((i + 1) / files.length) * 80));
-      }
-
-      const zipBlob = await zip.generateAsync(
-        { type: "blob", compression: "DEFLATE", compressionOptions: { level: 3 } },
-        (meta) => setZipProgress(80 + Math.round(meta.percent * 0.2))
-      );
-
-      saveAs(zipBlob, outName || "gallery.zip");
+      const result = await streamZipDownload({
+        files,
+        getName: fileNameFrom,
+        openFile: async (img) => {
+          const url = img.secure_url;
+          if (!url) throw new Error("Missing image URL");
+          const res = await fetch(url, { signal: controller.signal });
+          if (!res.ok) throw new Error(`Download failed: ${res.status}`);
+          return res;
+        },
+        outName: outName || "gallery.zip",
+        signal: controller.signal,
+        onProgress: ({ index, total }) => {
+          setZipProgress(Math.round((index / total) * 100));
+        },
+      });
+      if (result.cancelled) return;
     } catch (e) {
+      if (e?.name === "AbortError" || e?.name === "NotAllowedError") return;
       console.error(e);
       alert(e.message || "Preparing ZIP failed.");
     } finally {
+      abortRef.current = null;
       setZipping(false);
       setZipProgress(0);
     }
@@ -356,6 +359,15 @@ export default function ClientGallery() {
                 >
                   {zipping ? `Please wait… ${zipProgress}%` : "Download All"}
                 </button>
+
+                {zipping && (
+                  <button
+                    onClick={cancelZip}
+                    className="rounded-full px-4 py-2 text-sm font-semibold border border-burgundy/30 text-burgundy hover:bg-burgundy/5"
+                  >
+                    Cancel
+                  </button>
+                )}
 
                 <button onClick={reset} className="text-sm underline text-charcoal/70 hover:text-burgundy">
                   Use a different code

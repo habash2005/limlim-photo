@@ -1,16 +1,13 @@
 // src/pages/ClientPortal.jsx
-import React, { useEffect, useMemo, useState } from "react";
-import { db } from "../lib/firebase";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { db, storage } from "../lib/firebase";
 import { collection, doc, getDoc, getDocs, limit, query, where } from "firebase/firestore";
-import JSZip from "jszip";
-import { saveAs } from "file-saver";
-import { getStorage, ref as sref, getBlob } from "firebase/storage";
+import { ref as sref, getDownloadURL } from "firebase/storage";
 import { Helmet } from "react-helmet-async";
 import Lightbox from "../components/Lightbox";
 import { cdnUrl } from "../lib/imageUrl";
 import AlbumViewer from "../components/album/AlbumViewer";
-
-const storage = getStorage();
+import { streamZipDownload } from "../lib/zipDownload";
 
 function cls(...xs) { return xs.filter(Boolean).join(" "); }
 function upRef(s = "") { return String(s).trim().toUpperCase(); }
@@ -78,6 +75,7 @@ export default function ClientPortal() {
   const [selected, setSelected] = useState({});
   const [zipping, setZipping] = useState(false);
   const [zipProgress, setZipProgress] = useState(0);
+  const abortRef = useRef(null);
   const [lightboxIndex, setLightboxIndex] = useState(null);
   const [layoutDoc, setLayoutDoc] = useState(null);
   // "album" — curated layout view (download = printable PDF)
@@ -171,6 +169,10 @@ export default function ClientPortal() {
   }
 
   function signOut() {
+    if (abortRef.current) {
+      try { abortRef.current.abort(); } catch (_) {}
+      abortRef.current = null;
+    }
     localStorage.removeItem("clientRef");
     setRefInput("");
     setBooking(null);
@@ -182,39 +184,54 @@ export default function ClientPortal() {
     setLayoutDoc(null);
   }
 
+  function cancelZip() {
+    if (abortRef.current) {
+      try { abortRef.current.abort(); } catch (_) {}
+    }
+  }
+
+  // Stream files into a zip (no in-memory ceiling, originals preserved
+  // bit-for-bit). Sink picked at runtime in src/lib/zipDownload.js.
   async function zipAndDownload(files, outName) {
     if (!files.length) {
       alert("No files selected");
       return;
     }
-    const TOTAL_LIMIT_MB = 500;
-    let approx = 0;
-    for (const f of files) approx += f.size || 5_000_000;
-    if (approx / (1024 * 1024) > TOTAL_LIMIT_MB) {
-      alert(`Selection too large (>${TOTAL_LIMIT_MB}MB). Please select fewer images.`);
-      return;
-    }
+    const controller = new AbortController();
+    abortRef.current = controller;
     setZipping(true);
     setZipProgress(0);
     try {
-      const zip = new JSZip();
-      for (let i = 0; i < files.length; i++) {
-        const img = files[i];
-        const path = storagePathOf(img);
-        if (!path) continue;
-        const blob = await getBlob(sref(storage, path));
-        zip.file(fileNameFrom(img), blob, { compression: "STORE" });
-        setZipProgress(Math.round(((i + 1) / files.length) * 80));
-      }
-      const zipBlob = await zip.generateAsync(
-        { type: "blob", compression: "DEFLATE", compressionOptions: { level: 3 } },
-        (meta) => setZipProgress(80 + Math.round(meta.percent * 0.2))
-      );
-      saveAs(zipBlob, outName || "photos.zip");
+      const result = await streamZipDownload({
+        files,
+        getName: fileNameFrom,
+        openFile: async (img) => {
+          // Prefer the pre-signed URL written at upload time — direct fetch,
+          // no SDK round-trip, no App Check involvement. Fall back to
+          // getDownloadURL if older docs lack secure_url.
+          let url = img.secure_url;
+          if (!url) {
+            const path = storagePathOf(img);
+            if (!path) throw new Error("Missing storage path");
+            url = await getDownloadURL(sref(storage, path));
+          }
+          const res = await fetch(url, { signal: controller.signal });
+          if (!res.ok) throw new Error(`Download failed: ${res.status}`);
+          return res;
+        },
+        outName: outName || "photos.zip",
+        signal: controller.signal,
+        onProgress: ({ index, total }) => {
+          setZipProgress(Math.round((index / total) * 100));
+        },
+      });
+      if (result.cancelled) return;
     } catch (e) {
+      if (e?.name === "AbortError" || e?.name === "NotAllowedError") return;
       console.error(e);
       alert(e.message || "Download failed. Please try again.");
     } finally {
+      abortRef.current = null;
       setZipping(false);
       setZipProgress(0);
     }
@@ -441,6 +458,14 @@ export default function ClientPortal() {
                         >
                           {zipping ? `Please wait... ${zipProgress}%` : "Download All"}
                         </button>
+                        {zipping && (
+                          <button
+                            onClick={cancelZip}
+                            className="btn text-sm border border-burgundy/30 text-burgundy hover:bg-burgundy/5"
+                          >
+                            Cancel
+                          </button>
+                        )}
                       </>
                     ) : (
                       <button
