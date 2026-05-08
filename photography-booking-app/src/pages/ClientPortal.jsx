@@ -14,7 +14,13 @@ import { resolveTheme } from "../components/album/albumThemes";
 // progress state would otherwise clobber those mutations. memo keeps the
 // stage stable as long as its props are referentially equal.
 const AlbumPagePdf = React.memo(AlbumPage);
-import { streamZipDownload } from "../lib/zipDownload";
+import {
+  streamZipDownload,
+  bufferedZipDownload,
+  partitionFilesBySize,
+  isMobileDevice,
+  MOBILE_PART_BYTES,
+} from "../lib/zipDownload";
 // albumPdf bundles jsPDF + html2canvas (~400KB). Loaded on demand from
 // downloadAlbumAsPdf so portal first paint stays light.
 
@@ -85,6 +91,10 @@ export default function ClientPortal() {
   const [zipping, setZipping] = useState(false);
   const [zipProgress, setZipProgress] = useState(0);
   const abortRef = useRef(null);
+  // Set between mobile chunked-download parts. UI shows a banner asking
+  // the user to tap Continue (iOS requires a fresh user gesture between
+  // programmatic downloads).
+  const [partGate, setPartGate] = useState(null);
   const [lightboxIndex, setLightboxIndex] = useState(null);
   const [layoutDoc, setLayoutDoc] = useState(null);
 
@@ -319,6 +329,7 @@ export default function ClientPortal() {
     setErr("");
     setZipping(false);
     setZipProgress(0);
+    setPartGate(null);
     setLayoutDoc(null);
   }
 
@@ -328,9 +339,49 @@ export default function ClientPortal() {
     }
   }
 
-  // Stream files into a zip (no in-memory ceiling, originals preserved
-  // bit-for-bit). Sink picked at runtime in src/lib/zipDownload.js.
-  async function zipAndDownload(files, outName) {
+  function awaitNextPart(controller, completedPart, totalParts, partFileName) {
+    return new Promise((resolve) => {
+      if (controller.signal.aborted) {
+        resolve();
+        return;
+      }
+      const onAbort = () => {
+        controller.signal.removeEventListener("abort", onAbort);
+        setPartGate(null);
+        resolve();
+      };
+      controller.signal.addEventListener("abort", onAbort);
+      setPartGate({
+        completedPart,
+        totalParts,
+        partFileName,
+        onContinue: () => {
+          controller.signal.removeEventListener("abort", onAbort);
+          setPartGate(null);
+          resolve();
+        },
+      });
+    });
+  }
+
+  async function openFileFromImg(img, controller) {
+    // Prefer the pre-signed URL written at upload time — direct fetch, no
+    // SDK round-trip, no App Check involvement. Fall back to getDownloadURL
+    // if older docs lack secure_url.
+    let url = img.secure_url;
+    if (!url) {
+      const path = storagePathOf(img);
+      if (!path) throw new Error("Missing storage path");
+      url = await getDownloadURL(sref(storage, path));
+    }
+    const res = await fetch(url, { signal: controller.signal });
+    if (!res.ok) throw new Error(`Download failed: ${res.status}`);
+    return res;
+  }
+
+  // Desktop: stream directly to disk. Mobile: chunk into ~250 MB parts so
+  // iOS Safari's per-tab memory cap doesn't reload the page mid-download.
+  async function zipAndDownload(files, baseOutName) {
     if (!files.length) {
       alert("No files selected");
       return;
@@ -339,31 +390,53 @@ export default function ClientPortal() {
     abortRef.current = controller;
     setZipping(true);
     setZipProgress(0);
+    setPartGate(null);
+
     try {
-      const result = await streamZipDownload({
-        files,
-        getName: fileNameFrom,
-        openFile: async (img) => {
-          // Prefer the pre-signed URL written at upload time — direct fetch,
-          // no SDK round-trip, no App Check involvement. Fall back to
-          // getDownloadURL if older docs lack secure_url.
-          let url = img.secure_url;
-          if (!url) {
-            const path = storagePathOf(img);
-            if (!path) throw new Error("Missing storage path");
-            url = await getDownloadURL(sref(storage, path));
+      if (isMobileDevice()) {
+        const groups = partitionFilesBySize(files, MOBILE_PART_BYTES);
+        const totalParts = groups.length;
+        const grandTotal = files.length;
+        let processedSoFar = 0;
+        const stem = (baseOutName || "photos.zip").replace(/\.zip$/i, "");
+
+        for (let p = 0; p < totalParts; p++) {
+          if (controller.signal.aborted) break;
+          const partName =
+            totalParts === 1
+              ? `${stem}.zip`
+              : `${stem}-part-${p + 1}of${totalParts}.zip`;
+          if (p > 0) {
+            await awaitNextPart(controller, p, totalParts, partName);
+            if (controller.signal.aborted) break;
           }
-          const res = await fetch(url, { signal: controller.signal });
-          if (!res.ok) throw new Error(`Download failed: ${res.status}`);
-          return res;
-        },
-        outName: outName || "photos.zip",
-        signal: controller.signal,
-        onProgress: ({ index, total }) => {
-          setZipProgress(Math.round((index / total) * 100));
-        },
-      });
-      if (result.cancelled) return;
+          const result = await bufferedZipDownload({
+            files: groups[p],
+            getName: fileNameFrom,
+            openFile: (img) => openFileFromImg(img, controller),
+            outName: partName,
+            signal: controller.signal,
+            onProgress: ({ index }) => {
+              const cumulative = (processedSoFar + index) / grandTotal;
+              setZipProgress(Math.round(cumulative * 100));
+            },
+          });
+          if (result.cancelled) break;
+          processedSoFar += groups[p].length;
+        }
+      } else {
+        const result = await streamZipDownload({
+          files,
+          getName: fileNameFrom,
+          openFile: (img) => openFileFromImg(img, controller),
+          outName: baseOutName || "photos.zip",
+          signal: controller.signal,
+          onProgress: ({ index, total }) => {
+            setZipProgress(Math.round((index / total) * 100));
+          },
+        });
+        if (result.cancelled) return;
+      }
     } catch (e) {
       if (e?.name === "AbortError" || e?.name === "NotAllowedError") return;
       console.error(e);
@@ -372,6 +445,7 @@ export default function ClientPortal() {
       abortRef.current = null;
       setZipping(false);
       setZipProgress(0);
+      setPartGate(null);
     }
   }
 
@@ -642,6 +716,34 @@ export default function ClientPortal() {
                       className="h-full bg-gold transition-all duration-300"
                       style={{ width: `${zipProgress}%` }}
                     />
+                  </div>
+                )}
+
+                {/* Mobile chunked-download gate (between parts) */}
+                {partGate && activeView === "photos" && (
+                  <div className="mb-6 rounded-2xl bg-gold/10 border border-gold/40 p-3 sm:p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 print:hidden">
+                    <div className="text-sm text-charcoal">
+                      <span className="font-semibold">
+                        Part {partGate.completedPart} of {partGate.totalParts} saved.
+                      </span>
+                      <span className="block sm:inline sm:ml-2 text-charcoal/70">
+                        Tap below to continue with the next part.
+                      </span>
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={partGate.onContinue}
+                        className="btn text-sm btn-primary"
+                      >
+                        Continue · Part {partGate.completedPart + 1}
+                      </button>
+                      <button
+                        onClick={cancelZip}
+                        className="btn text-sm border border-burgundy/30 text-burgundy hover:bg-burgundy/5"
+                      >
+                        Cancel
+                      </button>
+                    </div>
                   </div>
                 )}
 

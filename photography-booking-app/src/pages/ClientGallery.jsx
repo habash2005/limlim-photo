@@ -2,7 +2,13 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { db } from "../lib/firebase";
 import { collection, getDocs, limit, query, where } from "firebase/firestore";
 
-import { streamZipDownload } from "../lib/zipDownload";
+import {
+  streamZipDownload,
+  bufferedZipDownload,
+  partitionFilesBySize,
+  isMobileDevice,
+  MOBILE_PART_BYTES,
+} from "../lib/zipDownload";
 
 import { Helmet } from "react-helmet-async"
 
@@ -150,6 +156,11 @@ export default function ClientGallery() {
   const [zipping, setZipping] = useState(false);
   const [zipProgress, setZipProgress] = useState(0);
   const abortRef = useRef(null);
+  // partGate is set between mobile chunked-download parts. UI shows
+  // "Part X of N saved · [Continue]"; tapping Continue resolves the gate
+  // and the download loop kicks off the next part with a fresh user
+  // gesture (iOS blocks back-to-back programmatic downloads otherwise).
+  const [partGate, setPartGate] = useState(null);
 
   const toggleOne = (pid) => setSelected((s) => ({ ...s, [pid]: !s[pid] }));
   const toggleAll = (checked) => {
@@ -221,11 +232,46 @@ export default function ClientGallery() {
     }
   }
 
-  // Stream files into a zip (no in-memory ceiling, originals preserved
-  // bit-for-bit). Sink is showSaveFilePicker on Chromium/recent Firefox,
-  // falls back to StreamSaver SW on Safari/mobile, blob fallback as last
-  // resort. See src/lib/zipDownload.js.
-  async function zipAndDownload(files, outName) {
+  // Pause between chunked-download parts on mobile. Resolves when the
+  // user taps Continue or the download is cancelled.
+  function awaitNextPart(controller, completedPart, totalParts, partFileName) {
+    return new Promise((resolve) => {
+      if (controller.signal.aborted) {
+        resolve();
+        return;
+      }
+      const onAbort = () => {
+        controller.signal.removeEventListener("abort", onAbort);
+        setPartGate(null);
+        resolve();
+      };
+      controller.signal.addEventListener("abort", onAbort);
+      setPartGate({
+        completedPart,
+        totalParts,
+        partFileName,
+        onContinue: () => {
+          controller.signal.removeEventListener("abort", onAbort);
+          setPartGate(null);
+          resolve();
+        },
+      });
+    });
+  }
+
+  function openFileFromImg(img, controller) {
+    const url = img.secure_url;
+    if (!url) throw new Error("Missing image URL");
+    return fetch(url, { signal: controller.signal }).then((res) => {
+      if (!res.ok) throw new Error(`Download failed: ${res.status}`);
+      return res;
+    });
+  }
+
+  // Desktop: stream directly to disk. Mobile: chunk into ~250 MB parts to
+  // avoid iOS Safari's per-tab memory cap reloading the page mid-download.
+  // See src/lib/zipDownload.js for the strategy split.
+  async function zipAndDownload(files, baseOutName) {
     if (!files.length) {
       alert("No files selected");
       return;
@@ -234,24 +280,53 @@ export default function ClientGallery() {
     abortRef.current = controller;
     setZipping(true);
     setZipProgress(0);
+    setPartGate(null);
+
     try {
-      const result = await streamZipDownload({
-        files,
-        getName: fileNameFrom,
-        openFile: async (img) => {
-          const url = img.secure_url;
-          if (!url) throw new Error("Missing image URL");
-          const res = await fetch(url, { signal: controller.signal });
-          if (!res.ok) throw new Error(`Download failed: ${res.status}`);
-          return res;
-        },
-        outName: outName || "gallery.zip",
-        signal: controller.signal,
-        onProgress: ({ index, total }) => {
-          setZipProgress(Math.round((index / total) * 100));
-        },
-      });
-      if (result.cancelled) return;
+      if (isMobileDevice()) {
+        const groups = partitionFilesBySize(files, MOBILE_PART_BYTES);
+        const totalParts = groups.length;
+        const grandTotal = files.length;
+        let processedSoFar = 0;
+        const stem = (baseOutName || "gallery.zip").replace(/\.zip$/i, "");
+
+        for (let p = 0; p < totalParts; p++) {
+          if (controller.signal.aborted) break;
+          const partName =
+            totalParts === 1
+              ? `${stem}.zip`
+              : `${stem}-part-${p + 1}of${totalParts}.zip`;
+          if (p > 0) {
+            await awaitNextPart(controller, p, totalParts, partName);
+            if (controller.signal.aborted) break;
+          }
+          const result = await bufferedZipDownload({
+            files: groups[p],
+            getName: fileNameFrom,
+            openFile: (img) => openFileFromImg(img, controller),
+            outName: partName,
+            signal: controller.signal,
+            onProgress: ({ index }) => {
+              const cumulative = (processedSoFar + index) / grandTotal;
+              setZipProgress(Math.round(cumulative * 100));
+            },
+          });
+          if (result.cancelled) break;
+          processedSoFar += groups[p].length;
+        }
+      } else {
+        const result = await streamZipDownload({
+          files,
+          getName: fileNameFrom,
+          openFile: (img) => openFileFromImg(img, controller),
+          outName: baseOutName || "gallery.zip",
+          signal: controller.signal,
+          onProgress: ({ index, total }) => {
+            setZipProgress(Math.round((index / total) * 100));
+          },
+        });
+        if (result.cancelled) return;
+      }
     } catch (e) {
       if (e?.name === "AbortError" || e?.name === "NotAllowedError") return;
       console.error(e);
@@ -260,6 +335,7 @@ export default function ClientGallery() {
       abortRef.current = null;
       setZipping(false);
       setZipProgress(0);
+      setPartGate(null);
     }
   }
 
@@ -378,6 +454,31 @@ export default function ClientGallery() {
             {zipping && (
               <div className="mt-3 h-2 w-full bg-burgundy/10 rounded-full overflow-hidden">
                 <div className="h-full bg-gold transition-all" style={{ width: `${zipProgress}%` }} />
+              </div>
+            )}
+
+            {partGate && (
+              <div className="mt-3 rounded-2xl bg-gold/10 border border-gold/40 p-3 sm:p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                <div className="text-sm text-charcoal">
+                  <span className="font-semibold">Part {partGate.completedPart} of {partGate.totalParts} saved.</span>
+                  <span className="block sm:inline sm:ml-2 text-charcoal/70">
+                    Tap below to continue with the next part.
+                  </span>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={partGate.onContinue}
+                    className="rounded-full px-4 py-2 text-sm font-semibold shadow-soft bg-wine text-white hover:bg-maroon focus:outline-none focus:ring-2 focus:ring-gold"
+                  >
+                    Continue · Part {partGate.completedPart + 1}
+                  </button>
+                  <button
+                    onClick={cancelZip}
+                    className="rounded-full px-4 py-2 text-sm border border-burgundy/30 text-burgundy hover:bg-burgundy/5"
+                  >
+                    Cancel
+                  </button>
+                </div>
               </div>
             )}
 

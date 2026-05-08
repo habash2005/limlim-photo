@@ -1,21 +1,26 @@
 // src/lib/zipDownload.js
 //
-// Streams remote files into a ZIP and writes it directly to disk.
+// Two download strategies live in this file:
 //
-// Originals are preserved bit-for-bit: every entry is a ZipPassThrough
-// (STORE, no recompression). The ZIP itself is produced incrementally by
-// fflate and piped to a sink in three preference tiers:
+// Desktop -- streamZipDownload(): truly streams to disk, RAM stays flat.
+// Sink picked at runtime in three preference tiers:
+//   1. showSaveFilePicker (Chromium / recent Firefox desktop)
+//   2. StreamSaver service worker (Safari, older Firefox)
+//   3. Buffered Blob fallback (last resort)
 //
-//   1. window.showSaveFilePicker  -- Chromium / recent Firefox desktop.
-//      The user picks the save location once and bytes go straight to disk;
-//      RAM use stays flat regardless of total size.
+// Mobile -- bufferedZipDownload() + partitionFilesBySize(): on iOS Safari
+// and low-RAM Android, both showSaveFilePicker is unavailable AND StreamSaver
+// can fail or get evicted under memory pressure, silently falling through
+// to the in-memory Blob sink. Letting that happen for a multi-GB gallery
+// blows past iOS's per-tab memory cap (~1-1.5 GB) and the OS reloads the
+// page mid-download. We avoid the trap entirely by splitting files into
+// ~250 MB chunks up front and saving each as its own zip via FileSaver.
+// Pages call partitionFilesBySize, then loop over groups with a
+// user-gesture between parts (iOS blocks programmatic downloads outside
+// a fresh user-activation window).
 //
-//   2. StreamSaver (service worker) -- Safari, mobile, older Firefox.
-//      A same-origin SW intercepts a synthetic URL and streams the response
-//      to the browser's normal "Save As" download. Also flat RAM.
-//
-//   3. Buffered Blob -- last-ditch fallback if neither path works. Holds
-//      the whole archive in memory; only reached on very old browsers.
+// Originals are preserved bit-for-bit on both paths: every entry is a
+// ZipPassThrough (STORE, no recompression).
 
 import { Zip, ZipPassThrough } from "fflate";
 import streamSaver from "streamsaver";
@@ -223,3 +228,158 @@ export async function streamZipDownload({
     }
   }
 }
+
+/**
+ * Coarse UA-based check for phone/tablet browsers. Used to route bulk
+ * downloads onto the chunked, in-memory path that doesn't depend on
+ * service-worker streaming (unreliable on iOS Safari).
+ */
+export function isMobileDevice() {
+  if (typeof navigator === "undefined") return false;
+  return /iPhone|iPad|iPod|Android|webOS|BlackBerry|IEMobile|Opera Mini/i.test(
+    navigator.userAgent
+  );
+}
+
+/**
+ * Group files into batches whose estimated total bytes stay under
+ * `maxBytesPerPart`. A single file larger than the cap becomes its own
+ * group — we never split a photo across two zips, since that would produce
+ * unrenderable archives.
+ *
+ * @param {Array<object>} files
+ * @param {number} maxBytesPerPart
+ * @param {(file: object) => number} [estimateBytes]
+ *   Defaults to file.bytes -> file.size -> 5MB fallback. The image
+ *   documents in this app store `bytes` from the upload step.
+ * @returns {Array<Array<object>>}
+ */
+export function partitionFilesBySize(
+  files,
+  maxBytesPerPart,
+  estimateBytes = (f) => f?.bytes || f?.size || 5 * 1024 * 1024
+) {
+  const groups = [];
+  let current = [];
+  let acc = 0;
+  for (const f of files) {
+    const est = Math.max(0, estimateBytes(f) || 0);
+    if (current.length > 0 && acc + est > maxBytesPerPart) {
+      groups.push(current);
+      current = [];
+      acc = 0;
+    }
+    current.push(f);
+    acc += est;
+  }
+  if (current.length) groups.push(current);
+  return groups;
+}
+
+/**
+ * Build a zip in memory and save it via FileSaver. Suitable for the mobile
+ * chunked path. Caller MUST ensure files for one call won't exceed the
+ * device's per-tab memory budget — partitionFilesBySize is the intended
+ * companion.
+ *
+ * @param {object} options
+ * @param {Array<object>} options.files
+ * @param {(file: object) => string} options.getName
+ * @param {(file: object) => Promise<ReadableStream<Uint8Array> | Response | Blob>} options.openFile
+ * @param {string} options.outName
+ * @param {(p: {index: number, total: number, currentName: string}) => void} [options.onProgress]
+ * @param {AbortSignal} [options.signal]
+ * @returns {Promise<{cancelled: boolean, kind: string}>}
+ */
+export async function bufferedZipDownload({
+  files,
+  getName,
+  openFile,
+  outName,
+  onProgress,
+  signal,
+}) {
+  if (!files || !files.length) throw new Error("No files to download");
+
+  let parts = [];
+  let pendingError = null;
+  const zip = new Zip();
+  zip.ondata = (err, chunk, _final) => {
+    if (err) {
+      pendingError = err;
+      return;
+    }
+    if (chunk && chunk.length) parts.push(toUint8(chunk));
+  };
+
+  const usedNames = new Set();
+
+  const ensureNotAborted = () => {
+    if (signal?.aborted) throw new DOMException("cancelled", "AbortError");
+  };
+
+  try {
+    for (let i = 0; i < files.length; i++) {
+      ensureNotAborted();
+      const file = files[i];
+      const safeName = dedupeName(usedNames, getName(file));
+      const entry = new ZipPassThrough(safeName);
+      zip.add(entry);
+
+      onProgress?.({ index: i, total: files.length, currentName: safeName });
+
+      const source = await openFile(file);
+      let stream;
+      if (source && typeof source.getReader === "function") {
+        stream = source;
+      } else if (source && source.body && typeof source.body.getReader === "function") {
+        stream = source.body;
+      } else if (source && typeof source.stream === "function") {
+        stream = source.stream();
+      } else {
+        throw new Error(`No readable stream available for ${safeName}`);
+      }
+
+      const reader = stream.getReader();
+      try {
+        while (true) {
+          if (signal?.aborted) {
+            try { await reader.cancel("cancelled"); } catch (_) {}
+            throw new DOMException("cancelled", "AbortError");
+          }
+          const { value, done } = await reader.read();
+          if (done) break;
+          entry.push(toUint8(value), false);
+          if (pendingError) throw pendingError;
+        }
+        entry.push(new Uint8Array(0), true);
+      } finally {
+        try { reader.releaseLock(); } catch (_) {}
+      }
+
+      onProgress?.({ index: i + 1, total: files.length, currentName: safeName });
+    }
+
+    zip.end();
+    if (pendingError) throw pendingError;
+
+    const blob = new Blob(parts, { type: "application/zip" });
+    // Drop our reference before saveAs so the GC can collect the parts
+    // array's chunks while the browser holds the assembled blob.
+    parts = [];
+    saveAs(blob, outName);
+
+    return { cancelled: false, kind: "buffered" };
+  } catch (e) {
+    try { zip.terminate(); } catch (_) {}
+    parts = [];
+    if (e?.name === "AbortError") {
+      return { cancelled: true, kind: "buffered" };
+    }
+    throw e;
+  }
+}
+
+/** Default per-part cap for the chunked mobile path. ~250 MB stays well
+ *  under iOS Safari's per-tab budget on devices going back several years. */
+export const MOBILE_PART_BYTES = 250 * 1024 * 1024;
