@@ -2,7 +2,8 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { db, storage } from "../lib/firebase";
 import { collection, doc, getDoc, getDocs, limit, query, where } from "firebase/firestore";
-import { ref as sref, getDownloadURL } from "firebase/storage";
+import { ref as sref, getDownloadURL, getBlob } from "firebase/storage";
+import { openWithFallback, fetchWithStatus } from "../lib/downloadWithRetry";
 import { Helmet } from "react-helmet-async";
 import Lightbox from "../components/Lightbox";
 import { cdnUrl } from "../lib/imageUrl";
@@ -365,18 +366,29 @@ export default function ClientPortal() {
   }
 
   async function openFileFromImg(img, controller) {
-    // Prefer the pre-signed URL written at upload time — direct fetch, no
-    // SDK round-trip, no App Check involvement. Fall back to getDownloadURL
-    // if older docs lack secure_url.
+    // Layered resilience:
+    //   primary  — raw fetch on the pre-signed secure_url. Fast, streamable,
+    //              compatible with the zip writer's incremental piping.
+    //   fallback — Firebase Storage SDK getBlob(). Different code path that
+    //              handles transient browser issues (extension XHR shims,
+    //              service-worker eviction, CORS edge cases) the raw fetch
+    //              can't recover from on its own.
+    // Both layers are retried with exponential backoff on transient errors;
+    // permanent 4xx (auth, missing) fail fast without burning attempts.
+    const path = storagePathOf(img);
     let url = img.secure_url;
     if (!url) {
-      const path = storagePathOf(img);
       if (!path) throw new Error("Missing storage path");
       url = await getDownloadURL(sref(storage, path));
     }
-    const res = await fetch(url, { signal: controller.signal });
-    if (!res.ok) throw new Error(`Download failed: ${res.status}`);
-    return res;
+
+    return openWithFallback({
+      maxAttempts: 3,
+      primary: () => fetchWithStatus(url, { signal: controller.signal }),
+      fallback: path
+        ? () => getBlob(sref(storage, path))
+        : undefined,
+    });
   }
 
   // Desktop: stream directly to disk. Mobile: chunk into ~250 MB parts so
