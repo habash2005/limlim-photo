@@ -7,7 +7,16 @@ import { Helmet } from "react-helmet-async";
 import Lightbox from "../components/Lightbox";
 import { cdnUrl } from "../lib/imageUrl";
 import AlbumViewer from "../components/album/AlbumViewer";
+import AlbumPage from "../components/album/AlbumPage";
+import { resolveTheme } from "../components/album/albumThemes";
+// Memoised AlbumPage variant used by the hidden PDF stage. We mutate <img>
+// elements in-place during PDF generation; ClientPortal re-renders driven by
+// progress state would otherwise clobber those mutations. memo keeps the
+// stage stable as long as its props are referentially equal.
+const AlbumPagePdf = React.memo(AlbumPage);
 import { streamZipDownload } from "../lib/zipDownload";
+// albumPdf bundles jsPDF + html2canvas (~400KB). Loaded on demand from
+// downloadAlbumAsPdf so portal first paint stays light.
 
 function cls(...xs) { return xs.filter(Boolean).join(" "); }
 function upRef(s = "") { return String(s).trim().toUpperCase(); }
@@ -78,6 +87,26 @@ export default function ClientPortal() {
   const abortRef = useRef(null);
   const [lightboxIndex, setLightboxIndex] = useState(null);
   const [layoutDoc, setLayoutDoc] = useState(null);
+
+  // PDF generation state. `pdfStage` is one of:
+  //   null         — idle
+  //   "prefetching" — downloading album photos as same-origin blobs
+  //   "rendering"   — hidden subtree mounting + waiting for image decode
+  //   "capturing"   — html2canvas + jsPDF building pages
+  // pdfImagesById is a SWAPPED imagesById whose secure_url fields point at
+  // blob: URLs so the captured canvas isn't tainted by cross-origin pixels.
+  const [pdfStage, setPdfStage] = useState(null);
+  const [pdfProgress, setPdfProgress] = useState({ index: 0, total: 0 });
+  const [pdfImagesById, setPdfImagesById] = useState(null);
+  const pdfRootRef = useRef(null);
+  const pdfPageRefs = useRef([]);
+
+  const imagesById = useMemo(() => {
+    const m = new Map();
+    for (const it of images || []) m.set(it.public_id, it);
+    return m;
+  }, [images]);
+  const pdfTheme = useMemo(() => resolveTheme(layoutDoc?.theme), [layoutDoc?.theme]);
   // "album" — curated layout view (download = printable PDF)
   // "photos" — flat grid with per-photo selection (download = zip of files)
   const [view, setView] = useState("album");
@@ -149,24 +178,133 @@ export default function ClientPortal() {
     }
   }
 
-  function downloadAlbumAsPdf() {
-    // Mark <html> so the print stylesheet (album.css) knows to render only
-    // the album viewer + dim the rest. The browser's print dialog lets the
-    // client save as PDF natively.
-    const root = document.documentElement;
-    root.classList.add("printing-album");
-    // Give the page one frame to apply layout changes before opening dialog
-    requestAnimationFrame(() => {
-      try {
-        window.print();
-      } finally {
-        // Clean up — print() is synchronous in most browsers (resolves when
-        // the dialog closes), but we also schedule a fallback removal.
-        root.classList.remove("printing-album");
-        setTimeout(() => root.classList.remove("printing-album"), 1000);
+  // Build a multi-page PDF of the album by rasterising each AlbumPage at the
+  // exact 720x960 design geometry and embedding each page into a jsPDF sized
+  // to match. Photos are pre-fetched as blob: URLs first so the canvas isn't
+  // cross-origin tainted. See src/lib/albumPdf.js for the capture pipeline.
+  async function downloadAlbumAsPdf() {
+    const pages = layoutDoc?.pages || [];
+    if (!pages.length) {
+      alert("No album layout yet.");
+      return;
+    }
+    const controller = new AbortController();
+    abortRef.current = controller;
+    const blobUrls = [];
+    setPdfStage("prefetching");
+    setPdfProgress({ index: 0, total: pages.length });
+
+    try {
+      // Dynamic-import to keep jsPDF + html2canvas (~400 KB) out of the
+      // portal's initial bundle.
+      const { generateAlbumPdf, prefetchAsBlobUrls, waitForRendered } =
+        await import("../lib/albumPdf");
+
+      // 1. Collect every distinct secure_url referenced by the album layout.
+      const used = new Set();
+      for (const page of pages) {
+        const slots = page.slots || {};
+        for (const k of Object.keys(slots)) {
+          const pid = slots[k]?.publicId;
+          const item = pid ? imagesById.get(pid) : null;
+          if (item?.secure_url) used.add(item.secure_url);
+        }
       }
-    });
+
+      // 2. Pre-fetch as same-origin blob URLs (with EXIF baked into pixels).
+      const urlMap = await prefetchAsBlobUrls(Array.from(used), controller.signal);
+      for (const v of urlMap.values()) blobUrls.push(v.url);
+
+      // 3. Build a swapped imagesById so AlbumPage receives blob URLs AND
+      //    post-normalisation dimensions. The crop math in AlbumPage uses
+      //    item.width/item.height; html2canvas will read the bitmap dims.
+      //    Feeding the same numbers to both keeps geometry consistent even
+      //    if Firestore cached pre-rotation dims from an older upload run.
+      const swapped = new Map();
+      for (const [pid, item] of imagesById) {
+        const entry = item?.secure_url ? urlMap.get(item.secure_url) : null;
+        if (entry) {
+          swapped.set(pid, {
+            ...item,
+            secure_url: entry.url,
+            width: entry.width || item.width,
+            height: entry.height || item.height,
+          });
+        } else {
+          swapped.set(pid, item);
+        }
+      }
+
+      // 4. Mount the hidden render subtree.
+      setPdfImagesById(swapped);
+      setPdfStage("rendering");
+      // Let React commit, then ensure DOM has flushed.
+      await new Promise((r) => requestAnimationFrame(r));
+      await new Promise((r) => setTimeout(r, 0));
+
+      const root = pdfRootRef.current;
+      if (!root) throw new Error("PDF render root missing");
+      await waitForRendered(root, controller.signal);
+
+      // 5. Capture each page node.
+      setPdfStage("capturing");
+      const nodes = pdfPageRefs.current.slice(0, pages.length).filter(Boolean);
+      if (nodes.length !== pages.length) {
+        throw new Error("Album pages did not all render");
+      }
+
+      const safeName =
+        (booking?.details?.name || "album")
+          .replace(/[^A-Za-z0-9._ -]+/g, "")
+          .trim()
+          .replace(/\s+/g, "_") || "album";
+      await generateAlbumPdf({
+        pageNodes: nodes,
+        stageRoot: root,
+        outName: `${safeName}-album.pdf`,
+        signal: controller.signal,
+        onProgress: (p) => setPdfProgress(p),
+      });
+    } catch (e) {
+      if (e?.name !== "AbortError") {
+        console.error(e);
+        alert(e.message || "Generating the album PDF failed.");
+      }
+    } finally {
+      blobUrls.forEach((u) => {
+        try { URL.revokeObjectURL(u); } catch (_) {}
+      });
+      abortRef.current = null;
+      setPdfStage(null);
+      setPdfImagesById(null);
+      setPdfProgress({ index: 0, total: 0 });
+    }
   }
+
+  function cancelPdf() {
+    if (abortRef.current) {
+      try { abortRef.current.abort(); } catch (_) {}
+    }
+  }
+
+  const pdfStatusText = (() => {
+    if (!pdfStage) return "";
+    if (pdfStage === "prefetching") return "Loading photos…";
+    if (pdfStage === "rendering") return "Composing album…";
+    if (pdfStage === "capturing") {
+      const { index, total } = pdfProgress;
+      return total ? `Rendering page ${index} of ${total}…` : "Rendering pages…";
+    }
+    return "";
+  })();
+  const pdfPercent = (() => {
+    if (pdfStage === "capturing" && pdfProgress.total) {
+      return Math.round((pdfProgress.index / pdfProgress.total) * 100);
+    }
+    if (pdfStage === "prefetching") return 5;
+    if (pdfStage === "rendering") return 15;
+    return 0;
+  })();
 
   function signOut() {
     if (abortRef.current) {
@@ -468,19 +606,31 @@ export default function ClientPortal() {
                         )}
                       </>
                     ) : (
-                      <button
-                        onClick={downloadAlbumAsPdf}
-                        disabled={!images.length}
-                        className={cls(
-                          "btn text-sm",
-                          !images.length
-                            ? "bg-burgundy/10 text-burgundy/40 cursor-not-allowed"
-                            : "btn-primary"
+                      <>
+                        <button
+                          onClick={downloadAlbumAsPdf}
+                          disabled={!images.length || !!pdfStage}
+                          className={cls(
+                            "btn text-sm",
+                            !images.length || !!pdfStage
+                              ? "bg-burgundy/10 text-burgundy/40 cursor-not-allowed"
+                              : "btn-primary"
+                          )}
+                          title="Saves the album as a PDF, ready to share or print"
+                        >
+                          {pdfStage
+                            ? `${pdfStatusText}${pdfStage === "capturing" ? ` ${pdfPercent}%` : ""}`
+                            : "Download Album (PDF)"}
+                        </button>
+                        {pdfStage && (
+                          <button
+                            onClick={cancelPdf}
+                            className="btn text-sm border border-burgundy/30 text-burgundy hover:bg-burgundy/5"
+                          >
+                            Cancel
+                          </button>
                         )}
-                        title="Opens your browser's print dialog — choose 'Save as PDF' to download"
-                      >
-                        Download Album (PDF)
-                      </button>
+                      </>
                     )}
                   </div>
                 </div>
@@ -491,6 +641,16 @@ export default function ClientPortal() {
                     <div
                       className="h-full bg-gold transition-all duration-300"
                       style={{ width: `${zipProgress}%` }}
+                    />
+                  </div>
+                )}
+
+                {/* Progress bar (album PDF) */}
+                {pdfStage && activeView === "album" && (
+                  <div className="mb-6 h-2 w-full bg-burgundy/10 rounded-full overflow-hidden print:hidden">
+                    <div
+                      className="h-full bg-gold transition-all duration-300"
+                      style={{ width: `${pdfPercent}%` }}
                     />
                   </div>
                 )}
@@ -603,6 +763,57 @@ export default function ClientPortal() {
           onClose={() => setLightboxIndex(null)}
           onNavigate={(index) => setLightboxIndex(index)}
         />
+      )}
+
+      {/* Hidden PDF render stage. Mounted only while a PDF is being built;
+          rendered at the album's native 720x960 design size and parked
+          off-screen so html2canvas can capture each page at its true layout
+          regardless of viewport, scroll, or animation state. */}
+      {pdfStage && pdfImagesById && layoutDoc?.pages?.length > 0 && (
+        <div
+          ref={pdfRootRef}
+          aria-hidden="true"
+          data-pdf-stage="true"
+          style={{
+            // Parked far above the viewport rather than transformed —
+            // html2canvas can mis-position elements whose ancestors have a
+            // CSS transform applied. Static negative top is safe.
+            position: "fixed",
+            left: 0,
+            top: -100000,
+            width: 720,
+            pointerEvents: "none",
+            zIndex: -1,
+            // Opacity must be 1 so html2canvas captures real pixels.
+            opacity: 1,
+          }}
+        >
+          {layoutDoc.pages.map((page, i) => (
+            <div
+              key={i}
+              ref={(el) => { pdfPageRefs.current[i] = el; }}
+              style={{
+                width: 720,
+                height: 960,
+                overflow: "hidden",
+                backgroundColor: pdfTheme.pageBg,
+              }}
+            >
+              <AlbumPagePdf
+                page={page}
+                theme={pdfTheme}
+                imagesById={pdfImagesById}
+                pageNumber={i + 1}
+                totalPages={layoutDoc.pages.length}
+                shouldLoad={true}
+                mode="view"
+                side={i % 2 === 0 ? "right" : "left"}
+                isPortrait={true}
+                hideChrome={false}
+              />
+            </div>
+          ))}
+        </div>
       )}
     </>
   );

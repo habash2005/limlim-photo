@@ -94,3 +94,20 @@
     margin: 0.4in;
   }
 }
+
+/* ----- Hidden render stage for the album-PDF generator -----
+ *
+ * AlbumPage uses an opacity-fade transition on photos so they cross-fade in
+ * after decode. When we capture pages with html2canvas off-screen we don't
+ * want ANY transition or animation in flight — capture has to read fully
+ * settled pixels, not a 350ms fade. !important beats PhotoSlot's inline
+ * opacity:0 + transition.
+ */
+[data-pdf-stage="true"] img,
+[data-pdf-stage="true"] *,
+[data-pdf-stage="true"] *::before,
+[data-pdf-stage="true"] *::after {
+  opacity: 1 !important;
+  transition: none !important;
+  animation: none !important;
+}
