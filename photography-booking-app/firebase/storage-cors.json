@@ -1,0 +1,24 @@
+[
+  {
+    "origin": [
+      "https://lamawafa.com",
+      "https://www.lamawafa.com",
+      "https://main--limlim.netlify.app",
+      "https://limlim.netlify.app",
+      "https://deploy-preview-*.netlify.app",
+      "http://localhost:4173",
+      "http://localhost:5173"
+    ],
+    "method": ["GET", "HEAD", "OPTIONS"],
+    "responseHeader": [
+      "Content-Type",
+      "Content-Length",
+      "Content-Range",
+      "Range",
+      "ETag",
+      "Cache-Control",
+      "Content-Disposition"
+    ],
+    "maxAgeSeconds": 3600
+  }
+]
