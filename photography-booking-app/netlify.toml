@@ -2,6 +2,15 @@
   command = "npm ci && npm run build"
   publish = "dist"
 
+# Netlify Image CDN — allow on-the-fly resizing of images served from
+# Firebase Storage (8MB raw JPEGs → ~80KB resized variants on demand).
+# Used by `cdnUrl()` in src/lib/imageUrl.js.
+[images]
+  remote_images = [
+    "https://firebasestorage.googleapis.com/.*",
+    "https://res.cloudinary.com/.*"
+  ]
+
 [functions]
   directory = "netlify/functions"
   node_bundler = "esbuild"

@@ -13,6 +13,7 @@ import AlbumFloatingBar from "./AlbumFloatingBar";
 import { autoPackToLayout, pageReactKey } from "./layoutSchema";
 import { resolveTheme } from "./albumThemes";
 import "./album.css";
+import { cdnUrl } from "../../lib/imageUrl";
 
 export default function AlbumViewer({
   items,
@@ -101,11 +102,12 @@ export default function AlbumViewer({
         onScrollDown={scrollToFeed}
         variant={theme.coverVariant || "burgundy"}
         cover={theme.cover || {}}
-        coverPhotoUrl={
-          theme.cover?.photoPublicId
+        coverPhotoUrl={(() => {
+          const u = theme.cover?.photoPublicId
             ? imagesById.get(theme.cover.photoPublicId)?.secure_url || null
-            : null
-        }
+            : null;
+          return u ? cdnUrl(u, { w: 2400, q: 88, fit: "cover" }) : null;
+        })()}
       />
 
       <div
