@@ -6,6 +6,12 @@
 //   <img src={cdnUrl(photo.secure_url, { w: 720 })} ... />
 //   <img src={cdnUrl(url, { w: 360, q: 70 })} ... />
 //
+// IMPORTANT: pass `w` only, NOT `fit`. With only `w`, the CDN scales the
+// image to that width preserving the original aspect ratio — landscapes stay
+// landscape, portraits stay portrait. Combining `fit:cover` with only `w`
+// (no `h`) caused the CDN to return weirdly-cropped tall slivers. CSS
+// `object-fit: cover` on the consuming element handles any slot fitting.
+//
 // Falls back to the original URL when:
 //   - we're in dev (no Netlify functions running)
 //   - the URL isn't HTTPS (data URLs etc.)

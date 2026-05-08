@@ -106,7 +106,7 @@ export default function AlbumViewer({
           const u = theme.cover?.photoPublicId
             ? imagesById.get(theme.cover.photoPublicId)?.secure_url || null
             : null;
-          return u ? cdnUrl(u, { w: 2400, q: 88, fit: "cover" }) : null;
+          return u ? cdnUrl(u, { w: 2400, q: 88 }) : null;
         })()}
       />
 

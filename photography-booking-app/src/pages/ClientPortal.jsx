@@ -494,7 +494,7 @@ export default function ClientPortal() {
                         onClick={() => toggleOne(img.public_id)}
                       >
                         <img
-                          src={cdnUrl(img.secure_url, { w: 900, q: 82, fit: "cover" })}
+                          src={cdnUrl(img.secure_url, { w: 900, q: 82 })}
                           alt={img.original_filename || "Photo"}
                           loading="lazy"
                           decoding="async"

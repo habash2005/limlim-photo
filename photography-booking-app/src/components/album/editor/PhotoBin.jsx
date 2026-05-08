@@ -57,7 +57,7 @@ const PhotoTile = memo(function PhotoTile({
     >
       {shouldLoad ? (
         <img
-          src={cdnUrl(secureUrl, { w: 300, q: 75, fit: "cover" })}
+          src={cdnUrl(secureUrl, { w: 300, q: 75 })}
           alt=""
           loading="lazy"
           decoding="async"

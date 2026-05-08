@@ -135,7 +135,7 @@ function PhotoSlot({
     >
       {!isEmpty && shouldLoad && item?.secure_url ? (
         <img
-          src={cdnUrl(item.secure_url, { w: 2000, q: 85, fit: "cover" })}
+          src={cdnUrl(item.secure_url, { w: 2000, q: 85 })}
           alt={item.original_filename || "Photo"}
           loading="lazy"
           decoding="async"
