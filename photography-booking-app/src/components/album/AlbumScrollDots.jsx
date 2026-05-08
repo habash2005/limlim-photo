@@ -7,6 +7,7 @@ export default function AlbumScrollDots({ total, current, onJump }) {
   return (
     <nav
       aria-label="Album page navigation"
+      data-album-scroll-dots=""
       className="hidden md:flex fixed right-5 top-1/2 -translate-y-1/2 z-30 flex-col items-center gap-2"
     >
       {Array.from({ length: total }).map((_, i) => {

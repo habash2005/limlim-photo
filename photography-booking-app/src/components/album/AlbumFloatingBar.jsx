@@ -62,6 +62,7 @@ export default function AlbumFloatingBar({
           animate={{ y: 0, opacity: 1 }}
           exit={{ y: 80, opacity: 0 }}
           transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
+          data-album-floating-bar=""
           className="fixed bottom-5 left-1/2 -translate-x-1/2 z-40
                      inline-flex items-center gap-2 rounded-full
                      bg-cream/85 backdrop-blur-xl ring-1 ring-burgundy/15
