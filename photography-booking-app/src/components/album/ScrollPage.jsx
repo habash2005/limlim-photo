@@ -37,6 +37,7 @@ export default function ScrollPage({
     <motion.section
       ref={ref}
       data-page-number={pageNumber}
+      data-album-scroll-page=""
       className="relative w-full flex items-center justify-center py-[6vh] sm:py-[8vh]
                  [content-visibility:auto] [contain-intrinsic-size:auto_900px]"
       initial={

@@ -57,3 +57,40 @@
     transition: none !important;
   }
 }
+
+/* ----- Print: client downloads the album as PDF -----
+ *
+ * Triggered by `printing-album` class on <html> (set in ClientPortal's
+ * downloadAlbumAsPdf). Hides chrome and forces each ScrollPage onto its own
+ * printed sheet so the saved PDF reads like a real photo album.
+ */
+@media print {
+  html.printing-album body {
+    background: #fff !important;
+  }
+  html.printing-album nav,
+  html.printing-album footer,
+  html.printing-album header[class*="bg-burgundy"],
+  html.printing-album [data-album-floating-bar],
+  html.printing-album [data-album-scroll-dots] {
+    display: none !important;
+  }
+
+  /* Each scroll-page section becomes its own printed page */
+  html.printing-album [data-album-scroll-page] {
+    page-break-after: always;
+    break-after: page;
+    margin: 0 !important;
+    padding: 0 !important;
+    min-height: auto !important;
+    /* Reset framer-motion's scroll-triggered transforms so print is clean */
+    opacity: 1 !important;
+    transform: none !important;
+  }
+
+  /* Tighter page margins for the printed document */
+  @page {
+    size: auto;
+    margin: 0.4in;
+  }
+}

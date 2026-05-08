@@ -79,6 +79,12 @@ export default function ClientPortal() {
   const [zipProgress, setZipProgress] = useState(0);
   const [lightboxIndex, setLightboxIndex] = useState(null);
   const [layoutDoc, setLayoutDoc] = useState(null);
+  // "album" — curated layout view (download = printable PDF)
+  // "photos" — flat grid with per-photo selection (download = zip of files)
+  const [view, setView] = useState("album");
+  const hasAlbum = !!layoutDoc?.pages?.length;
+  // If there's no album layout, force the photos tab
+  const activeView = hasAlbum ? view : "photos";
 
   const someChecked = images.some((img) => !!selected[img.public_id]);
   const allChecked = images.length > 0 && images.every((img) => !!selected[img.public_id]);
@@ -142,6 +148,25 @@ export default function ClientPortal() {
     } finally {
       setLoading(false);
     }
+  }
+
+  function downloadAlbumAsPdf() {
+    // Mark <html> so the print stylesheet (album.css) knows to render only
+    // the album viewer + dim the rest. The browser's print dialog lets the
+    // client save as PDF natively.
+    const root = document.documentElement;
+    root.classList.add("printing-album");
+    // Give the page one frame to apply layout changes before opening dialog
+    requestAnimationFrame(() => {
+      try {
+        window.print();
+      } finally {
+        // Clean up — print() is synchronous in most browsers (resolves when
+        // the dialog closes), but we also schedule a fallback removal.
+        root.classList.remove("printing-album");
+        setTimeout(() => root.classList.remove("printing-album"), 1000);
+      }
+    });
   }
 
   function signOut() {
@@ -333,58 +358,110 @@ export default function ClientPortal() {
             {/* Gallery */}
             {booking && (
               <div>
-                {/* Toolbar */}
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8 pb-6 border-b border-burgundy/20">
+                {/* Tabs (only show when an album layout exists) */}
+                {hasAlbum && (
+                  <div className="mb-4 flex items-center gap-1 print:hidden" role="tablist" aria-label="View">
+                    {[
+                      { id: "album", label: "Album" },
+                      { id: "photos", label: "Photos" },
+                    ].map((t) => (
+                      <button
+                        key={t.id}
+                        type="button"
+                        role="tab"
+                        aria-selected={activeView === t.id}
+                        onClick={() => setView(t.id)}
+                        className={cls(
+                          "px-5 py-2 text-sm font-medium rounded-full transition-colors",
+                          activeView === t.id
+                            ? "bg-burgundy text-cream shadow-soft"
+                            : "text-charcoal/60 hover:text-burgundy"
+                        )}
+                      >
+                        {t.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {/* Toolbar — controls swap based on the active tab */}
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8 pb-6 border-b border-burgundy/20 print:hidden">
                   <div className="flex items-center gap-4">
-                    <label className="flex items-center gap-2 cursor-pointer group">
-                      <input
-                        type="checkbox"
-                        checked={!!allChecked}
-                        ref={(el) => el && (el.indeterminate = !allChecked && someChecked)}
-                        onChange={(e) => toggleAll(e.target.checked)}
-                        className="w-5 h-5 rounded border-burgundy/30 text-burgundy focus:ring-gold"
-                      />
-                      <span className="text-sm text-charcoal/70 group-hover:text-charcoal">
-                        Select all
-                      </span>
-                    </label>
-                    {someChecked && (
+                    {activeView === "photos" ? (
+                      <>
+                        <label className="flex items-center gap-2 cursor-pointer group">
+                          <input
+                            type="checkbox"
+                            checked={!!allChecked}
+                            ref={(el) => el && (el.indeterminate = !allChecked && someChecked)}
+                            onChange={(e) => toggleAll(e.target.checked)}
+                            className="w-5 h-5 rounded border-burgundy/30 text-burgundy focus:ring-gold"
+                          />
+                          <span className="text-sm text-charcoal/70 group-hover:text-charcoal">
+                            Select all
+                          </span>
+                        </label>
+                        {someChecked && (
+                          <span className="text-sm text-charcoal/60">
+                            {selectedCount} of {images.length} selected
+                          </span>
+                        )}
+                      </>
+                    ) : (
                       <span className="text-sm text-charcoal/60">
-                        {selectedCount} of {images.length} selected
+                        {layoutDoc.pages.length} page{layoutDoc.pages.length === 1 ? "" : "s"} · {images.length} photo{images.length === 1 ? "" : "s"}
                       </span>
                     )}
                   </div>
                   <div className="flex flex-wrap items-center gap-3">
-                    <button
-                      onClick={downloadSelectedZip}
-                      disabled={!someChecked || zipping}
-                      className={cls(
-                        "btn text-sm",
-                        !someChecked || zipping
-                          ? "bg-burgundy/10 text-burgundy/40 cursor-not-allowed"
-                          : "btn-secondary"
-                      )}
-                    >
-                      {zipping ? `Preparing... ${zipProgress}%` : "Download Selected"}
-                    </button>
-                    <button
-                      onClick={downloadAllZip}
-                      disabled={!images.length || zipping}
-                      className={cls(
-                        "btn text-sm",
-                        !images.length || zipping
-                          ? "bg-burgundy/10 text-burgundy/40 cursor-not-allowed"
-                          : "btn-primary"
-                      )}
-                    >
-                      {zipping ? `Please wait... ${zipProgress}%` : "Download All"}
-                    </button>
+                    {activeView === "photos" ? (
+                      <>
+                        <button
+                          onClick={downloadSelectedZip}
+                          disabled={!someChecked || zipping}
+                          className={cls(
+                            "btn text-sm",
+                            !someChecked || zipping
+                              ? "bg-burgundy/10 text-burgundy/40 cursor-not-allowed"
+                              : "btn-secondary"
+                          )}
+                        >
+                          {zipping ? `Preparing... ${zipProgress}%` : "Download Selected"}
+                        </button>
+                        <button
+                          onClick={downloadAllZip}
+                          disabled={!images.length || zipping}
+                          className={cls(
+                            "btn text-sm",
+                            !images.length || zipping
+                              ? "bg-burgundy/10 text-burgundy/40 cursor-not-allowed"
+                              : "btn-primary"
+                          )}
+                        >
+                          {zipping ? `Please wait... ${zipProgress}%` : "Download All"}
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        onClick={downloadAlbumAsPdf}
+                        disabled={!images.length}
+                        className={cls(
+                          "btn text-sm",
+                          !images.length
+                            ? "bg-burgundy/10 text-burgundy/40 cursor-not-allowed"
+                            : "btn-primary"
+                        )}
+                        title="Opens your browser's print dialog — choose 'Save as PDF' to download"
+                      >
+                        Download Album (PDF)
+                      </button>
+                    )}
                   </div>
                 </div>
 
-                {/* Progress bar */}
-                {zipping && (
-                  <div className="mb-6 h-2 w-full bg-burgundy/10 rounded-full overflow-hidden">
+                {/* Progress bar (photos tab only) */}
+                {zipping && activeView === "photos" && (
+                  <div className="mb-6 h-2 w-full bg-burgundy/10 rounded-full overflow-hidden print:hidden">
                     <div
                       className="h-full bg-gold transition-all duration-300"
                       style={{ width: `${zipProgress}%` }}
@@ -392,9 +469,9 @@ export default function ClientPortal() {
                   </div>
                 )}
 
-                {/* Album Viewer (custom layout, if photographer built one) */}
-                {images.length > 0 && layoutDoc?.pages?.length > 0 && (
-                  <div className="-mx-4 sm:-mx-6 lg:-mx-8 mb-12">
+                {/* Album Viewer */}
+                {images.length > 0 && hasAlbum && activeView === "album" && (
+                  <div className="-mx-4 sm:-mx-6 lg:-mx-8 mb-12 album-print-root">
                     <AlbumViewer
                       items={images}
                       layoutDoc={layoutDoc}
@@ -406,8 +483,8 @@ export default function ClientPortal() {
                   </div>
                 )}
 
-                {/* Gallery Grid (standard selection view) */}
-                {images.length > 0 ? (
+                {/* Gallery Grid (photos tab) */}
+                {images.length === 0 ? null : activeView === "photos" ? (
                   <div className="columns-1 sm:columns-2 lg:columns-3 xl:columns-4 gap-4">
                     {images.map((img) => (
                       <div
@@ -466,7 +543,10 @@ export default function ClientPortal() {
                       </div>
                     ))}
                   </div>
-                ) : (
+                ) : null}
+
+                {/* No photos at all */}
+                {images.length === 0 && (
                   <div className="text-center py-20">
                     <div className="w-16 h-16 mx-auto mb-4 bg-burgundy/10 flex items-center justify-center">
                       <svg className="w-8 h-8 text-burgundy/50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
