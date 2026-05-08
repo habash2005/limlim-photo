@@ -1,4 +1,5 @@
 import React, { memo, useEffect, useMemo, useRef, useState } from "react";
+import { cdnUrl } from "../../../lib/imageUrl";
 
 const FILTERS = [
   { id: "all", label: "All" },
@@ -56,7 +57,7 @@ const PhotoTile = memo(function PhotoTile({
     >
       {shouldLoad ? (
         <img
-          src={secureUrl}
+          src={cdnUrl(secureUrl, { w: 300, q: 75, fit: "cover" })}
           alt=""
           loading="lazy"
           decoding="async"

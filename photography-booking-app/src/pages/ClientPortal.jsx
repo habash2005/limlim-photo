@@ -7,6 +7,7 @@ import { saveAs } from "file-saver";
 import { getStorage, ref as sref, getBlob } from "firebase/storage";
 import { Helmet } from "react-helmet-async";
 import Lightbox from "../components/Lightbox";
+import { cdnUrl } from "../lib/imageUrl";
 import AlbumViewer from "../components/album/AlbumViewer";
 
 const storage = getStorage();
@@ -493,7 +494,7 @@ export default function ClientPortal() {
                         onClick={() => toggleOne(img.public_id)}
                       >
                         <img
-                          src={img.secure_url}
+                          src={cdnUrl(img.secure_url, { w: 900, q: 82, fit: "cover" })}
                           alt={img.original_filename || "Photo"}
                           loading="lazy"
                           decoding="async"

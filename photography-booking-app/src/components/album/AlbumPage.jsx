@@ -1,6 +1,7 @@
 import React, { forwardRef, useState } from "react";
 import { getTemplate } from "./albumTemplates";
 import { getTextValue, getTextStyle } from "./layoutSchema";
+import { cdnUrl } from "../../lib/imageUrl";
 
 function HeartIcon({ filled }) {
   return (
@@ -52,44 +53,61 @@ function PhotoSlot({
 
   let imgStyle;
   if (useCustomCrop) {
-    // The crop modal saves `area` as percentages (0-100) of the source image.
-    // Naively: image rendered at (100/cropArea.width)% × (100/cropArea.height)%
-    // of the slot — which only works when the cropArea's aspect matches the
-    // slot's. After `changeTemplate` preserves a crop into a slot with a new
-    // aspect, those percentages drift; with `object-fit: cover` on a
-    // non-natural-aspect IMG box the image gets re-cropped, showing a
-    // narrower region than the user actually picked.
+    // The crop modal saves `area` as PERCENTAGES (0-100) of the source image.
+    // The legacy `width: 100/cropArea.width%, height: 100/cropArea.height%`
+    // formula only renders the picked region correctly when the cropArea's
+    // aspect on the source image happens to match the slot's aspect. When it
+    // drifts (after `changeTemplate` preserves a crop into a slot with a
+    // different aspect, or the slot's geometry differs from when the crop
+    // was made), the IMG box ends up at a non-natural aspect and either
+    // `object-fit: cover` re-crops the image (cutting heads off) OR the box
+    // doesn't span the slot (leaving empty cream space).
     //
-    // Fix: derive the IMG element's height from the photo's natural aspect
-    // ratio, not from `cropArea.height`. The IMG box now matches the image
-    // exactly, so cover/fill doesn't re-crop. Position with `left` from
-    // `cropArea.x` and `top` from `cropArea.y` × the derived height.
+    // Fix — pick the LARGER of the two scale candidates so the IMG box
+    // always covers the slot, and constrain the IMG box to the photo's
+    // NATURAL aspect ratio so cover doesn't re-crop. Center the cropArea on
+    // the slot so the user's intended subject stays maximally in frame.
     const imgW = item?.width || 0;
     const imgH = item?.height || 0;
-    const widthPct = (100 / cropArea.width) * 100;
-    let heightPct;
-    let topPct;
     if (imgW > 0 && imgH > 0) {
-      // Page canvas is 720×960; geometry.{w,h} are percent of canvas.
-      const slotAR = (geometry.w * 720) / (geometry.h * 960);
-      const imgAR = imgW / imgH;
-      heightPct = (widthPct * slotAR) / imgAR;
-      topPct = -cropArea.y * (heightPct / 100);
+      // 720×960 = the page canvas (see editor/PageCanvas.jsx + ScrollPage).
+      const slotW = (geometry.w / 100) * 720;
+      const slotH = (geometry.h / 100) * 960;
+      // Two scale candidates that would make the cropArea region exactly
+      // span the slot in width vs height.
+      const sx = slotW / ((cropArea.width / 100) * imgW);
+      const sy = slotH / ((cropArea.height / 100) * imgH);
+      // Take the larger so the IMG box covers the slot in BOTH axes.
+      const s = Math.max(sx, sy);
+      const renderedW = s * imgW;
+      const renderedH = s * imgH;
+      // Align the cropArea center with the slot center.
+      const cropCx = ((cropArea.x + cropArea.width / 2) / 100) * renderedW;
+      const cropCy = ((cropArea.y + cropArea.height / 2) / 100) * renderedH;
+      const leftPx = slotW / 2 - cropCx;
+      const topPx = slotH / 2 - cropCy;
+      imgStyle = {
+        position: "absolute",
+        width: `${(renderedW / slotW) * 100}%`,
+        height: `${(renderedH / slotH) * 100}%`,
+        left: `${(leftPx / slotW) * 100}%`,
+        top: `${(topPx / slotH) * 100}%`,
+        // IMG box now matches the photo's natural aspect; cover is a no-op.
+        objectFit: "cover",
+        opacity: loaded ? 1 : 0,
+      };
     } else {
-      // Fallback to legacy formula when image dimensions are unknown.
-      heightPct = (100 / cropArea.height) * 100;
-      topPct = (-cropArea.y / cropArea.height) * 100;
+      // Fall back to legacy formula when image dimensions are unknown.
+      imgStyle = {
+        position: "absolute",
+        width: `${(100 / cropArea.width) * 100}%`,
+        height: `${(100 / cropArea.height) * 100}%`,
+        left: `${(-cropArea.x / cropArea.width) * 100}%`,
+        top: `${(-cropArea.y / cropArea.height) * 100}%`,
+        objectFit: "cover",
+        opacity: loaded ? 1 : 0,
+      };
     }
-    imgStyle = {
-      position: "absolute",
-      width: `${widthPct}%`,
-      height: `${heightPct}%`,
-      left: `${(-cropArea.x / cropArea.width) * 100}%`,
-      top: `${topPct}%`,
-      // With width/height aligned to natural aspect, cover doesn't re-crop.
-      objectFit: "cover",
-      opacity: loaded ? 1 : 0,
-    };
   } else {
     const focalX = (slot?.focal?.x ?? 0.5) * 100;
     const focalY = (slot?.focal?.y ?? 0.5) * 100;
@@ -117,7 +135,7 @@ function PhotoSlot({
     >
       {!isEmpty && shouldLoad && item?.secure_url ? (
         <img
-          src={item.secure_url}
+          src={cdnUrl(item.secure_url, { w: 2000, q: 85, fit: "cover" })}
           alt={item.original_filename || "Photo"}
           loading="lazy"
           decoding="async"
