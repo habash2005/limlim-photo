@@ -52,12 +52,41 @@ function PhotoSlot({
 
   let imgStyle;
   if (useCustomCrop) {
+    // The crop modal saves `area` as percentages (0-100) of the source image.
+    // Naively: image rendered at (100/cropArea.width)% × (100/cropArea.height)%
+    // of the slot — which only works when the cropArea's aspect matches the
+    // slot's. After `changeTemplate` preserves a crop into a slot with a new
+    // aspect, those percentages drift; with `object-fit: cover` on a
+    // non-natural-aspect IMG box the image gets re-cropped, showing a
+    // narrower region than the user actually picked.
+    //
+    // Fix: derive the IMG element's height from the photo's natural aspect
+    // ratio, not from `cropArea.height`. The IMG box now matches the image
+    // exactly, so cover/fill doesn't re-crop. Position with `left` from
+    // `cropArea.x` and `top` from `cropArea.y` × the derived height.
+    const imgW = item?.width || 0;
+    const imgH = item?.height || 0;
+    const widthPct = (100 / cropArea.width) * 100;
+    let heightPct;
+    let topPct;
+    if (imgW > 0 && imgH > 0) {
+      // Page canvas is 720×960; geometry.{w,h} are percent of canvas.
+      const slotAR = (geometry.w * 720) / (geometry.h * 960);
+      const imgAR = imgW / imgH;
+      heightPct = (widthPct * slotAR) / imgAR;
+      topPct = -cropArea.y * (heightPct / 100);
+    } else {
+      // Fallback to legacy formula when image dimensions are unknown.
+      heightPct = (100 / cropArea.height) * 100;
+      topPct = (-cropArea.y / cropArea.height) * 100;
+    }
     imgStyle = {
       position: "absolute",
-      width: `${100 / cropArea.width * 100}%`,
-      height: `${100 / cropArea.height * 100}%`,
-      left: `${-cropArea.x / cropArea.width * 100}%`,
-      top: `${-cropArea.y / cropArea.height * 100}%`,
+      width: `${widthPct}%`,
+      height: `${heightPct}%`,
+      left: `${(-cropArea.x / cropArea.width) * 100}%`,
+      top: `${topPct}%`,
+      // With width/height aligned to natural aspect, cover doesn't re-crop.
       objectFit: "cover",
       opacity: loaded ? 1 : 0,
     };
