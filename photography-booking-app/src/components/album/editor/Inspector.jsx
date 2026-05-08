@@ -186,7 +186,7 @@ function AlbumInspector({ theme, layout, images, onSetTheme, onSetCover }) {
             <div className="space-y-2">
               <div className="aspect-[3/4] rounded-md overflow-hidden ring-1 ring-burgundy/15">
                 <img
-                  src={cdnUrl(images.find((i) => i.public_id === cover.photoPublicId)?.secure_url, { w: 800, q: 85, fit: "cover" })}
+                  src={cdnUrl(images.find((i) => i.public_id === cover.photoPublicId)?.secure_url, { w: 800, q: 85 })}
                   alt=""
                   className="w-full h-full object-cover"
                 />
@@ -208,7 +208,7 @@ function AlbumInspector({ theme, layout, images, onSetTheme, onSetCover }) {
                   onClick={() => onSetCover("photoPublicId", img.public_id)}
                   className="aspect-square rounded-md overflow-hidden ring-1 ring-burgundy/15 hover:ring-burgundy/40 hover:scale-[1.02] transition-all"
                 >
-                  <img src={cdnUrl(img.secure_url, { w: 300, q: 75, fit: "cover" })} alt="" className="w-full h-full object-cover" loading="lazy" />
+                  <img src={cdnUrl(img.secure_url, { w: 300, q: 75 })} alt="" className="w-full h-full object-cover" loading="lazy" />
                 </button>
               ))}
               {images.length > 12 && (
@@ -444,7 +444,7 @@ function SlotInspector({ page, slotKey, imagesById, onClearSlot, onEditCrop }) {
       <Section title="Photo">
         {item ? (
           <div className="aspect-square rounded-md overflow-hidden ring-1 ring-burgundy/15 mb-3">
-            <img src={cdnUrl(item.secure_url, { w: 800, q: 85, fit: "cover" })} alt="" className="w-full h-full object-cover" />
+            <img src={cdnUrl(item.secure_url, { w: 800, q: 85 })} alt="" className="w-full h-full object-cover" />
           </div>
         ) : (
           <div className="aspect-square rounded-md bg-cream/60 ring-1 ring-burgundy/15 mb-3 grid place-items-center text-[10px] uppercase tracking-[0.2em] text-charcoal/55">
