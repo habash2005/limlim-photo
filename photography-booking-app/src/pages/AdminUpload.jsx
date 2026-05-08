@@ -14,11 +14,23 @@ import {
   where,
 } from "firebase/firestore";
 import { ref as sRef, uploadBytesResumable, getDownloadURL } from "firebase/storage";
+import { uploadWithRetry, TRANSIENT_CODES } from "../lib/uploadWithRetry";
 
 const ADMIN_EMAIL = "lamawafa13@gmail.com";
-const MAX_SIZE = 25 * 1024 * 1024;
+const MAX_SIZE = 100 * 1024 * 1024;            // 100 MB per file (was 25 MB)
 const BUCKET = import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "";
-const CONCURRENCY = 4;
+const CONCURRENCY = 3;                          // parallel uploads (was 4)
+const PER_FILE_RETRIES = 3;                     // attempts per file on transient errors
+
+// Bump the SDK's per-upload retry window from 2 min default to 10 min, and the
+// per-operation (metadata fetch etc.) window from 2 min to 5 min. In Firebase
+// v9 modular, these are properties on the storage instance, not free functions.
+try {
+  storage.maxUploadRetryTime = 10 * 60 * 1000;
+  storage.maxOperationRetryTime = 5 * 60 * 1000;
+} catch (e) {
+  console.warn("Could not raise storage retry windows:", e?.message || e);
+}
 
 /* utils */
 const cls = (...xs) => xs.filter(Boolean).join(" ");
@@ -298,13 +310,9 @@ export default function AdminUpload() {
     return newRef;
   }
 
-  /* upload one */
-  function uploadOne({ item, basePath, imagesCollectionPath, extraDocFields }) {
-    return new Promise(async (resolve) => {
-      const file = item.file;
-      const id = `${Date.now()}_${randomId(6)}`;
-      const path = `${basePath}/${id}.${extOf(file.name)}`;
-
+  /* run a single upload attempt — used inside the retry loop in uploadOne */
+  function uploadOnce({ item, file, path, attempt, totalAttempts }) {
+    return new Promise((resolve) => {
       const objRef = sRef(storage, path);
       const task = uploadBytesResumable(objRef, file, {
         contentType: file.type || "image/jpeg",
@@ -312,7 +320,17 @@ export default function AdminUpload() {
       });
 
       setQueue((q) =>
-        q.map((qit) => (qit.id === item.id ? { ...qit, status: "uploading", task } : qit))
+        q.map((qit) =>
+          qit.id === item.id
+            ? {
+                ...qit,
+                status: "uploading",
+                task,
+                attempt,
+                error: attempt > 1 ? `Retry ${attempt}/${totalAttempts}…` : "",
+              }
+            : qit
+        )
       );
 
       task.on(
@@ -332,57 +350,82 @@ export default function AdminUpload() {
             )
           );
         },
-        (err) => {
-          setQueue((q) =>
-            q.map((qit) =>
-              qit.id === item.id
-                ? { ...qit, status: "error", error: String(err?.message || err) }
-                : qit
-            )
-          );
-          resolve({ ok: false, error: err, file });
-        },
-        async () => {
-          try {
-            const url = await getDownloadURL(task.snapshot.ref);
-            const { width, height } = await getImageDims(file);
-
-            if (imagesCollectionPath) {
-              const imagesCol = collection(db, imagesCollectionPath);
-              const docId = path.replace(/\//g, "__");
-              await setDoc(doc(imagesCol, docId), {
-                public_id: path,
-                format: extOf(file.name),
-                bytes: file.size,
-                width,
-                height,
-                secure_url: url,
-                original_filename: file.name,
-                version: 1,
-                createdAt: serverTimestamp(),
-                ...extraDocFields,
-              });
-            }
-
-            setQueue((q) =>
-              q.map((qit) =>
-                qit.id === item.id ? { ...qit, status: "done", progress: 100, url } : qit
-              )
-            );
-            resolve({ ok: true, url });
-          } catch (err) {
-            setQueue((q) =>
-              q.map((qit) =>
-                qit.id === item.id
-                  ? { ...qit, status: "error", error: String(err?.message || err) }
-                  : qit
-              )
-            );
-            resolve({ ok: false, error: err, file });
-          }
-        }
+        (err) => resolve({ ok: false, error: err }),
+        () => resolve({ ok: true, snapshot: task.snapshot })
       );
     });
+  }
+
+  /* upload one — wraps uploadOnce in the testable retry helper */
+  async function uploadOne({ item, basePath, imagesCollectionPath, extraDocFields }) {
+    const file = item.file;
+    const id = `${Date.now()}_${randomId(6)}`;
+    const path = `${basePath}/${id}.${extOf(file.name)}`;
+
+    const retryResult = await uploadWithRetry({
+      maxAttempts: PER_FILE_RETRIES,
+      attempt: (attemptN, total) =>
+        uploadOnce({ item, file, path, attempt: attemptN, totalAttempts: total }).then((r) =>
+          r.ok ? { ok: true, value: r.snapshot } : { ok: false, error: r.error }
+        ),
+    });
+
+    if (!retryResult.ok) {
+      const lastErr = retryResult.error;
+      setQueue((q) =>
+        q.map((qit) =>
+          qit.id === item.id
+            ? {
+                ...qit,
+                status: "error",
+                error: String(lastErr?.message || lastErr || "Upload failed"),
+              }
+            : qit
+        )
+      );
+      return { ok: false, error: lastErr, file };
+    }
+
+    // Upload succeeded — finalize Firestore doc + UI state
+    try {
+      const url = await getDownloadURL(retryResult.value.ref);
+      const { width, height } = await getImageDims(file);
+
+      if (imagesCollectionPath) {
+        const imagesCol = collection(db, imagesCollectionPath);
+        const docId = path.replace(/\//g, "__");
+        await setDoc(doc(imagesCol, docId), {
+          public_id: path,
+          format: extOf(file.name),
+          bytes: file.size,
+          width,
+          height,
+          secure_url: url,
+          original_filename: file.name,
+          version: 1,
+          createdAt: serverTimestamp(),
+          ...extraDocFields,
+        });
+      }
+
+      setQueue((q) =>
+        q.map((qit) =>
+          qit.id === item.id
+            ? { ...qit, status: "done", progress: 100, url, error: "" }
+            : qit
+        )
+      );
+      return { ok: true, url };
+    } catch (err) {
+      setQueue((q) =>
+        q.map((qit) =>
+          qit.id === item.id
+            ? { ...qit, status: "error", error: String(err?.message || err) }
+            : qit
+        )
+      );
+      return { ok: false, error: err, file };
+    }
   }
 
   /* submit */

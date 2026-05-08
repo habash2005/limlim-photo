@@ -7,6 +7,9 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test",
     "rules:deploy": "firebase deploy --only firestore:rules",
     "rules:status": "firebase firestore:rules"
   },
@@ -26,12 +29,17 @@
     "react-router-dom": "^6.26.2"
   },
   "devDependencies": {
+    "@playwright/test": "^1.59.1",
     "@vitejs/plugin-react": "^4.7.0",
+    "@vitest/ui": "^2.1.9",
     "autoprefixer": "^10.4.21",
+    "dotenv": "^17.4.2",
     "firebase-tools": "^15.16.0",
+    "happy-dom": "^20.9.0",
     "netlify-cli": "^23.1.4",
     "postcss": "^8.5.6",
     "tailwindcss": "^3.4.17",
-    "vite": "^5.4.19"
+    "vite": "^5.4.19",
+    "vitest": "^2.1.9"
   }
 }
