@@ -1,7 +1,7 @@
-import React, { forwardRef } from "react";
+import React, { forwardRef, useEffect, useState } from "react";
 import { getTemplate } from "./albumTemplates";
 import { getTextValue, getTextStyle } from "./layoutSchema";
-import { useResilientSrc } from "../../lib/useResilientSrc";
+import { cdnUrl } from "../../lib/imageUrl";
 
 function HeartIcon({ filled }) {
   return (
@@ -36,14 +36,38 @@ function PhotoSlot({
   fullGutter,
   accent,
 }) {
-  // Resilient src: CDN-transformed URL with automatic fallback to raw
-  // secure_url if the CDN rejects (e.g. source >20 MB cap). Without this
-  // fallback, IMG.onerror fires silently and the slot stays at opacity:0,
-  // which looks like an empty slot in the UI.
-  const { src: imgSrc, loaded, failed, onLoad, onError } = useResilientSrc(
-    item?.secure_url,
-    { w: 2000, q: 85 }
-  );
+  // Resilient image src: try CDN first, fall back to raw secure_url on
+  // error (CDN rejects sources >20 MB). Without the fallback, IMG.onerror
+  // fires silently and the slot stays at opacity:0 = visually empty.
+  // Three local states (loaded / cdnFailed / failed) — kept inline to
+  // avoid a custom hook that HMR can desync.
+  const [loaded, setLoaded] = useState(false);
+  const [cdnFailed, setCdnFailed] = useState(false);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    setLoaded(false);
+    setCdnFailed(false);
+    setFailed(false);
+  }, [item?.public_id]);
+  const imgSrc = !item?.secure_url
+    ? null
+    : cdnFailed
+      ? item.secure_url
+      : cdnUrl(item.secure_url, { w: 2000, q: 85 });
+  const onLoad = () => setLoaded(true);
+  const onError = () => {
+    if (!cdnFailed) {
+      if (typeof console !== "undefined") {
+        console.warn("[AlbumPage] CDN failed, falling back to raw:", item?.secure_url);
+      }
+      setCdnFailed(true);
+    } else {
+      if (typeof console !== "undefined") {
+        console.warn("[AlbumPage] raw URL also failed:", item?.secure_url);
+      }
+      setFailed(true);
+    }
+  };
 
   const style = {
     left: `calc(${geometry.x}% + ${halfGutter}px)`,

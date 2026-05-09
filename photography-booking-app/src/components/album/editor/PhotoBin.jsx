@@ -1,5 +1,5 @@
 import React, { memo, useEffect, useMemo, useRef, useState } from "react";
-import { useResilientSrc } from "../../../lib/useResilientSrc";
+import { cdnUrl } from "../../../lib/imageUrl";
 
 const FILTERS = [
   { id: "all", label: "All" },
@@ -40,11 +40,6 @@ const PhotoTile = memo(function PhotoTile({
     e.dataTransfer.effectAllowed = "copy";
   };
 
-  const { src: imgSrc, onLoad: onImgLoad, onError: onImgError } = useResilientSrc(
-    secureUrl,
-    { w: 300, q: 75 }
-  );
-
   return (
     <div
       ref={ref}
@@ -62,14 +57,20 @@ const PhotoTile = memo(function PhotoTile({
     >
       {shouldLoad ? (
         <img
-          src={imgSrc}
+          src={cdnUrl(secureUrl, { w: 300, q: 75 })}
           alt=""
           loading="lazy"
           decoding="async"
           fetchpriority="low"
           draggable="false"
-          onLoad={onImgLoad}
-          onError={onImgError}
+          onError={(e) => {
+            // CDN can reject (>20MB sources, transient 5xx). Fall back
+            // to the raw URL once. Inline pattern avoids extra hook state.
+            if (secureUrl && e.currentTarget.dataset.fallback !== "1") {
+              e.currentTarget.dataset.fallback = "1";
+              e.currentTarget.src = secureUrl;
+            }
+          }}
           className="w-full h-full object-cover pointer-events-none"
         />
       ) : (
