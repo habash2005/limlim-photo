@@ -1,5 +1,5 @@
 import React, { memo, useEffect, useMemo, useRef, useState } from "react";
-import { cdnUrl } from "../../../lib/imageUrl";
+import { useResilientSrc } from "../../../lib/useResilientSrc";
 
 const FILTERS = [
   { id: "all", label: "All" },
@@ -40,6 +40,11 @@ const PhotoTile = memo(function PhotoTile({
     e.dataTransfer.effectAllowed = "copy";
   };
 
+  const { src: imgSrc, onLoad: onImgLoad, onError: onImgError } = useResilientSrc(
+    secureUrl,
+    { w: 300, q: 75 }
+  );
+
   return (
     <div
       ref={ref}
@@ -57,12 +62,14 @@ const PhotoTile = memo(function PhotoTile({
     >
       {shouldLoad ? (
         <img
-          src={cdnUrl(secureUrl, { w: 300, q: 75 })}
+          src={imgSrc}
           alt=""
           loading="lazy"
           decoding="async"
           fetchpriority="low"
           draggable="false"
+          onLoad={onImgLoad}
+          onError={onImgError}
           className="w-full h-full object-cover pointer-events-none"
         />
       ) : (
