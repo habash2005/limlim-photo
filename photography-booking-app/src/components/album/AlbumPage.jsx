@@ -194,9 +194,25 @@ function PhotoSlot({
         </>
       ) : !isEmpty ? (
         <div className="absolute inset-0 bg-gradient-to-br from-charcoal/10 to-charcoal/20 animate-pulse" />
+      ) : mode === "edit" ? (
+        <div className="absolute inset-0 grid place-items-center bg-burgundy/5 border-2 border-dashed border-burgundy/40">
+          <div className="text-center px-3">
+            <div className="mx-auto mb-2 grid place-items-center w-10 h-10 rounded-full bg-burgundy/10 text-burgundy/70">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M12 5v14M5 12h14" />
+              </svg>
+            </div>
+            <div className="font-sans text-[11px] uppercase tracking-[0.2em] text-burgundy/80 font-semibold">
+              Empty slot
+            </div>
+            <div className="font-sans text-[10px] text-charcoal/55 mt-0.5">
+              Drag a photo here
+            </div>
+          </div>
+        </div>
       ) : (
         <div className="absolute inset-0 grid place-items-center text-burgundy/40 font-sans text-xs uppercase tracking-[0.2em]">
-          {mode === "edit" ? "Drop photo" : ""}
+          {""}
         </div>
       )}
 
