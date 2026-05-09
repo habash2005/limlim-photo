@@ -333,28 +333,51 @@ export default function ClientPortal() {
   }
 
   async function openFileFromImg(img, controller) {
-    // Layered resilience:
-    //   primary  — raw fetch on the pre-signed secure_url. Fast, streamable,
-    //              compatible with the zip writer's incremental piping.
-    //   fallback — Firebase Storage SDK getBlob(). Different code path that
-    //              handles transient browser issues (extension XHR shims,
-    //              service-worker eviction, CORS edge cases) the raw fetch
-    //              can't recover from on its own.
-    // Both layers are retried with exponential backoff on transient errors;
-    // permanent 4xx (auth, missing) fail fast without burning attempts.
+    // Each file is downloaded as a fully-buffered Blob, not a streaming
+    // Response. We tried streaming the Response body straight into the zip
+    // writer; that had a fatal flaw on flaky networks: `reader.read()` in
+    // the middle of a body stream surfaces `ERR_QUIC_PROTOCOL_ERROR` and
+    // similar transport blips as `TypeError: network error`, completely
+    // bypassing the retry layer (the Response had already been "opened
+    // successfully" by then). One in-flight chunk failure killed the whole
+    // 1.5 GB zip with no recovery.
+    //
+    // Buffering to Blob makes each file an atomic unit — either the whole
+    // download succeeds (and goes into the zip) or it fails (and we retry
+    // / fall back). Peak RAM is ~one file (8–15 MB) at a time, which is
+    // negligible compared to what the zip sink already holds.
+    //
+    //   primary  — Firebase Storage SDK getBlob(). XHR under the hood with
+    //              its own internal retry, different transport pool from
+    //              fetch — robust to fetch-only failure modes (QUIC blips,
+    //              extension XHR shims, service-worker eviction).
+    //   fallback — raw fetch().blob(). Useful when SDK init / App Check
+    //              is the failing component, since it goes straight to the
+    //              pre-signed URL with no SDK middleware in the way.
+    //
+    // 5 attempts × exponential backoff so transient QUIC + Chrome's HTTP/3
+    // → HTTP/2 fallback have time to take effect (~10–15 s total).
     const path = storagePathOf(img);
     let url = img.secure_url;
-    if (!url) {
-      if (!path) throw new Error("Missing storage path");
+    if (!url && path) {
       url = await getDownloadURL(sref(storage, path));
     }
 
+    const fetchToBlob = async () => {
+      if (!url) throw new Error("No URL available for fallback");
+      const res = await fetchWithStatus(url, {
+        signal: controller.signal,
+        cache: "no-store",
+      });
+      return await res.blob();
+    };
+
     return openWithFallback({
-      maxAttempts: 3,
-      primary: () => fetchWithStatus(url, { signal: controller.signal }),
-      fallback: path
+      maxAttempts: 5,
+      primary: path
         ? () => getBlob(sref(storage, path))
-        : undefined,
+        : fetchToBlob,
+      fallback: path && url ? fetchToBlob : undefined,
     });
   }
 
