@@ -1,6 +1,6 @@
 import React, { useRef } from "react";
 import { motion, useScroll, useTransform, useReducedMotion } from "framer-motion";
-import { useResilientSrc } from "../../lib/useResilientSrc";
+import { cdnUrl } from "../../lib/imageUrl";
 
 function ChevronDownIcon() {
   return (
@@ -93,13 +93,6 @@ export default function AlbumHero({
   const isPhoto = coverStyle === "photo" && coverPhotoUrl;
   const isMinimal = coverStyle === "minimal";
 
-  // Cover hero gets the largest single image on the page; route through
-  // CDN at high quality with raw-URL fallback if CDN rejects.
-  const { src: coverSrc, onLoad: onCoverLoad, onError: onCoverError } = useResilientSrc(
-    coverPhotoUrl,
-    { w: 2400, q: 88 }
-  );
-
   return (
     <section
       ref={containerRef}
@@ -111,10 +104,14 @@ export default function AlbumHero({
       {isPhoto && (
         <div className="absolute inset-0 pointer-events-none">
           <img
-            src={coverSrc}
+            src={cdnUrl(coverPhotoUrl, { w: 2400, q: 88 })}
             alt=""
-            onLoad={onCoverLoad}
-            onError={onCoverError}
+            onError={(e) => {
+              if (coverPhotoUrl && e.currentTarget.dataset.fallback !== "1") {
+                e.currentTarget.dataset.fallback = "1";
+                e.currentTarget.src = coverPhotoUrl;
+              }
+            }}
             className="absolute inset-0 w-full h-full object-cover"
             draggable="false"
           />
