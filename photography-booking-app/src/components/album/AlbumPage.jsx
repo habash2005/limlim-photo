@@ -1,7 +1,7 @@
-import React, { forwardRef, useState } from "react";
+import React, { forwardRef } from "react";
 import { getTemplate } from "./albumTemplates";
 import { getTextValue, getTextStyle } from "./layoutSchema";
-import { cdnUrl } from "../../lib/imageUrl";
+import { useResilientSrc } from "../../lib/useResilientSrc";
 
 function HeartIcon({ filled }) {
   return (
@@ -36,7 +36,14 @@ function PhotoSlot({
   fullGutter,
   accent,
 }) {
-  const [loaded, setLoaded] = useState(false);
+  // Resilient src: CDN-transformed URL with automatic fallback to raw
+  // secure_url if the CDN rejects (e.g. source >20 MB cap). Without this
+  // fallback, IMG.onerror fires silently and the slot stays at opacity:0,
+  // which looks like an empty slot in the UI.
+  const { src: imgSrc, loaded, onLoad, onError } = useResilientSrc(
+    item?.secure_url,
+    { w: 2000, q: 85 }
+  );
 
   const style = {
     left: `calc(${geometry.x}% + ${halfGutter}px)`,
@@ -135,12 +142,13 @@ function PhotoSlot({
     >
       {!isEmpty && shouldLoad && item?.secure_url ? (
         <img
-          src={cdnUrl(item.secure_url, { w: 2000, q: 85 })}
+          src={imgSrc}
           alt={item.original_filename || "Photo"}
           loading="lazy"
           decoding="async"
           draggable="false"
-          onLoad={() => setLoaded(true)}
+          onLoad={onLoad}
+          onError={onError}
           className={
             useCustomCrop
               ? "select-none transition-opacity duration-700 ease-out"

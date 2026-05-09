@@ -733,6 +733,14 @@ export default function ClientPortal() {
                           alt={img.original_filename || "Photo"}
                           loading="lazy"
                           decoding="async"
+                          onError={(e) => {
+                            // CDN rejected (oversized source, transient 5xx).
+                            // Fall back to the raw URL once.
+                            if (e.currentTarget.dataset.fallback !== "1") {
+                              e.currentTarget.dataset.fallback = "1";
+                              e.currentTarget.src = img.secure_url;
+                            }
+                          }}
                           className="w-full h-auto object-cover portfolio-img"
                         />
                         {/* Overlay */}
