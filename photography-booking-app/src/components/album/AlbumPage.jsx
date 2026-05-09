@@ -40,7 +40,7 @@ function PhotoSlot({
   // secure_url if the CDN rejects (e.g. source >20 MB cap). Without this
   // fallback, IMG.onerror fires silently and the slot stays at opacity:0,
   // which looks like an empty slot in the UI.
-  const { src: imgSrc, loaded, onLoad, onError } = useResilientSrc(
+  const { src: imgSrc, loaded, failed, onLoad, onError } = useResilientSrc(
     item?.secure_url,
     { w: 2000, q: 85 }
   );
@@ -141,21 +141,33 @@ function PhotoSlot({
       onClick={mode === "edit" && onSlotClick ? (e) => { e.stopPropagation(); onSlotClick(slotKey); } : undefined}
     >
       {!isEmpty && shouldLoad && item?.secure_url ? (
-        <img
-          src={imgSrc}
-          alt={item.original_filename || "Photo"}
-          loading="lazy"
-          decoding="async"
-          draggable="false"
-          onLoad={onLoad}
-          onError={onError}
-          className={
-            useCustomCrop
-              ? "select-none transition-opacity duration-700 ease-out"
-              : "w-full h-full object-cover select-none transition-opacity duration-700 ease-out"
-          }
-          style={imgStyle}
-        />
+        <>
+          <img
+            src={imgSrc}
+            alt={item.original_filename || "Photo"}
+            loading="lazy"
+            decoding="async"
+            draggable="false"
+            onLoad={onLoad}
+            onError={onError}
+            className={
+              useCustomCrop
+                ? "select-none transition-opacity duration-700 ease-out"
+                : "w-full h-full object-cover select-none transition-opacity duration-700 ease-out"
+            }
+            style={imgStyle}
+          />
+          {failed && mode === "edit" && (
+            <div className="absolute inset-0 grid place-items-center bg-rose-50/95 text-rose-800 text-xs px-3 text-center pointer-events-none">
+              <div>
+                <div className="font-semibold mb-1">Image failed to load</div>
+                <div className="text-rose-700/80 text-[11px] truncate max-w-full">
+                  {item.original_filename || item.public_id || "(no filename)"}
+                </div>
+              </div>
+            </div>
+          )}
+        </>
       ) : !isEmpty ? (
         <div className="absolute inset-0 bg-gradient-to-br from-charcoal/10 to-charcoal/20 animate-pulse" />
       ) : (

@@ -21,10 +21,12 @@ import { cdnUrl } from "./imageUrl";
 export function useResilientSrc(rawUrl, cdnOpts = {}) {
   const [cdnFailed, setCdnFailed] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  const [failed, setFailed] = useState(false);
 
   useEffect(() => {
     setCdnFailed(false);
     setLoaded(false);
+    setFailed(false);
   }, [rawUrl]);
 
   const src = !rawUrl
@@ -37,10 +39,24 @@ export function useResilientSrc(rawUrl, cdnOpts = {}) {
     src,
     loaded,
     cdnFailed,
+    failed, // becomes true after BOTH CDN and raw URL failed to load
     onLoad: () => setLoaded(true),
     onError: () => {
-      // First failure: drop CDN, retry raw URL. Second failure: give up.
-      if (!cdnFailed) setCdnFailed(true);
+      if (!cdnFailed) {
+        // First failure: drop CDN, retry with raw URL.
+        if (typeof console !== "undefined") {
+          // Surfacing the URL helps debug. Single-line console.warn is
+          // intentional — these are noisy in dev but useful in support.
+          console.warn("[useResilientSrc] CDN failed, falling back to raw:", rawUrl);
+        }
+        setCdnFailed(true);
+      } else {
+        // Second failure (raw URL also failed): we're out of options.
+        if (typeof console !== "undefined") {
+          console.warn("[useResilientSrc] raw URL also failed:", rawUrl);
+        }
+        setFailed(true);
+      }
     },
   };
 }
